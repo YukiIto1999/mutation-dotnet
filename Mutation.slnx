@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Mutation/Mutation.csproj" />
+    <Project Path="src/Mutation.Cli/Mutation.Cli.csproj" />
+    <Project Path="src/Mutation.Worker/Mutation.Worker.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Mutation.Tests/Mutation.Tests.csproj" />
+  </Folder>
+</Solution>

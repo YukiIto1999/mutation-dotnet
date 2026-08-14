@@ -1,0 +1,9 @@
+root = true
+
+[*.cs]
+dotnet_diagnostic.S104.severity = error
+dotnet_diagnostic.S138.severity = error
+dotnet_diagnostic.S134.severity = error
+
+# 文脈の shared kernel を Shared と呼ぶ(exemplar と同じ扱い。VB の予約語衝突は対象外)
+dotnet_diagnostic.CA1716.severity = none

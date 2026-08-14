@@ -1,0 +1,31 @@
+// 同期ブロックを避け、呼び出し元まで async を伝播する
+M:System.Threading.Tasks.Task.Wait;同期ブロックを避け、await を使用する
+M:System.Threading.Tasks.Task.Wait(System.TimeSpan);同期ブロックを避け、await を使用する
+M:System.Threading.Tasks.Task.Wait(System.TimeSpan,System.Threading.CancellationToken);同期ブロックを避け、await を使用する
+M:System.Threading.Tasks.Task.Wait(System.Threading.CancellationToken);同期ブロックを避け、await を使用する
+M:System.Threading.Tasks.Task.Wait(System.Int32);同期ブロックを避け、await を使用する
+M:System.Threading.Tasks.Task.Wait(System.Int32,System.Threading.CancellationToken);同期ブロックを避け、await を使用する
+P:System.Threading.Tasks.Task`1.Result;同期ブロックを避け、await を使用する
+P:System.Threading.Tasks.ValueTask`1.Result;同期ブロックを避け、await を使用する
+M:System.Runtime.CompilerServices.TaskAwaiter.GetResult;同期ブロックを避け、await を使用する
+M:System.Runtime.CompilerServices.TaskAwaiter`1.GetResult;同期ブロックを避け、await を使用する
+M:System.Runtime.CompilerServices.ValueTaskAwaiter.GetResult;同期ブロックを避け、await を使用する
+M:System.Runtime.CompilerServices.ValueTaskAwaiter`1.GetResult;同期ブロックを避け、await を使用する
+M:System.Runtime.CompilerServices.ConfiguredTaskAwaitable.ConfiguredTaskAwaiter.GetResult;同期ブロックを避け、await を使用する
+M:System.Runtime.CompilerServices.ConfiguredTaskAwaitable`1.ConfiguredTaskAwaiter.GetResult;同期ブロックを避け、await を使用する
+M:System.Runtime.CompilerServices.ConfiguredValueTaskAwaitable.ConfiguredValueTaskAwaiter.GetResult;同期ブロックを避け、await を使用する
+M:System.Runtime.CompilerServices.ConfiguredValueTaskAwaitable`1.ConfiguredValueTaskAwaiter.GetResult;同期ブロックを避け、await を使用する
+M:System.Threading.Tasks.Task.WaitAll(System.Collections.Generic.IEnumerable{System.Threading.Tasks.Task},System.Threading.CancellationToken);同期ブロックを避け、Task.WhenAll と await を使用する
+M:System.Threading.Tasks.Task.WaitAll(System.ReadOnlySpan{System.Threading.Tasks.Task});同期ブロックを避け、Task.WhenAll と await を使用する
+M:System.Threading.Tasks.Task.WaitAll(System.Threading.Tasks.Task[]);同期ブロックを避け、Task.WhenAll と await を使用する
+M:System.Threading.Tasks.Task.WaitAll(System.Threading.Tasks.Task[],System.Int32);同期ブロックを避け、Task.WhenAll と await を使用する
+M:System.Threading.Tasks.Task.WaitAll(System.Threading.Tasks.Task[],System.Threading.CancellationToken);同期ブロックを避け、Task.WhenAll と await を使用する
+M:System.Threading.Tasks.Task.WaitAll(System.Threading.Tasks.Task[],System.TimeSpan);同期ブロックを避け、Task.WhenAll と await を使用する
+M:System.Threading.Tasks.Task.WaitAll(System.Threading.Tasks.Task[],System.Int32,System.Threading.CancellationToken);同期ブロックを避け、Task.WhenAll と await を使用する
+M:System.Threading.Tasks.Task.WaitAny(System.Threading.Tasks.Task[]);同期ブロックを避け、Task.WhenAny と await を使用する
+M:System.Threading.Tasks.Task.WaitAny(System.Threading.Tasks.Task[],System.Int32);同期ブロックを避け、Task.WhenAny と await を使用する
+M:System.Threading.Tasks.Task.WaitAny(System.Threading.Tasks.Task[],System.TimeSpan);同期ブロックを避け、Task.WhenAny と await を使用する
+M:System.Threading.Tasks.Task.WaitAny(System.Threading.Tasks.Task[],System.Threading.CancellationToken);同期ブロックを避け、Task.WhenAny と await を使用する
+M:System.Threading.Tasks.Task.WaitAny(System.Threading.Tasks.Task[],System.Int32,System.Threading.CancellationToken);同期ブロックを避け、Task.WhenAny と await を使用する
+M:System.Threading.Tasks.Task.RunSynchronously;同期実行を避け、非同期のまま await する
+M:System.Threading.Tasks.Task.RunSynchronously(System.Threading.Tasks.TaskScheduler);同期実行を避け、非同期のまま await する

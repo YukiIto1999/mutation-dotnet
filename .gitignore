@@ -1,0 +1,12 @@
+bin/
+obj/
+.devenv/
+.direnv/
+.vscode/
+.claude/
+.mcp.json
+CLAUDE.md
+StrykerOutput/
+.mutation-output/
+tests/performance/medium/work/
+docs/
