@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="ConsoleAppFramework" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Mutation/Mutation.csproj" />
+    <ProjectReference Include="../../../typemodeling-dotnet/src/TypeModeling/TypeModeling.csproj" />
+    <ProjectReference Include="../../../typemodeling-dotnet/src/TypeModeling.Analyzers/TypeModeling.Analyzers.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false"
+                      SkipGetTargetFrameworkProperties="true" />
+    <ProjectReference Include="../Mutation.Worker/Mutation.Worker.csproj" />
+  </ItemGroup>
+</Project>
