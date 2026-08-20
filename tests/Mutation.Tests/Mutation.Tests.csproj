@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <!-- テスト名は仕様を表す snake_case の一文にするため識別子の下線警告を外す -->
+    <NoWarn>$(NoWarn);CA1707</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="TUnit" />
+    <PackageReference Include="CsCheck" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Mutation/Mutation.csproj" />
+  </ItemGroup>
+</Project>

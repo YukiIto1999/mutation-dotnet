@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Fixture.Target/Fixture.Target.csproj" />
+  </ItemGroup>
+</Project>

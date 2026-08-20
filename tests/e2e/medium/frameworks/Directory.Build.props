@@ -1,0 +1,9 @@
+<Project>
+  <!-- fixture は変異検査の入力であり、root の analyzer 構成と CPM を継承しない -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+</Project>
