@@ -11,6 +11,7 @@ mutation testing が遅い主因は、mutant ごとの build とテストホス�
 - mutant schemata が全 mutant を 1 回の Roslyn コンパイルへ埋め込み、実行時に切り替える。build は mutant ごとでなく 1 回で済む
 - 常駐 in-process テストホストがテスト基盤を読み込んだまま、per-test カバレッジと fail-fast で被覆テストだけを実行する
 - 型検査が compile できない変異を emit 前に除外し、rollback の再コンパイルを避ける
+- **RelationalPatternMutator** — 関係 pattern の演算子を交換し、compile 可能な switch の網羅性を維持する。
 - snapshot が前回実行から不変の mutant の判定を継承し、生成入力が完全一致なら全段階を省略する
 
 21 module・2,921 mutants の実プロジェクトの全実行は 4 分 21 秒で、compile error の mutant は 0 件。約 18,000 mutants の別対象では、無変更の再実行が snapshot 継承により 32 秒で完了する。
@@ -32,10 +33,23 @@ dotnet src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll run \
   --output .mutation-output
 ```
 
+module ごとに project を分けている場合は、対を `,` 区切りで並べて一度に渡す。build は一度だけになり、報告も一つにまとまる。
+
+```bash
+dotnet src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll run \
+  --project core/a/A.csproj,core/b/B.csproj \
+  --test-project core/a/tests/A.Tests.csproj,core/b/tests/B.Tests.csproj \
+  --output .mutation-output
+```
+
+対象の一件が失敗しても残りの対象は検査を続け、中断した対象は要約と `timings.json` に残る。終了コードは 1 になる。
+
 ## オプション
 
 | option | 意味 |
 |---|---|
+| `--project PATHS` | 変異対象 project。`,` 区切りで複数 |
+| `--test-project PATHS` | テスト project。`--project` と同数を同じ順で並べる |
 | `--concurrency N` | worker 数。既定は論理コア数の半分 |
 | `--configuration NAME` | build 構成。既定 Debug |
 | `--mutate GLOBS` | 変異対象の glob。project directory 相対、`!` で除外、`,` 区切り |
