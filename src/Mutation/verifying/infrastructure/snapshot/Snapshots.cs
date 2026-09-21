@@ -8,12 +8,12 @@ namespace Mutation.Verifying.Infrastructure.Snapshot;
 public sealed class Snapshots : ISnapshots
 {
     /// <inheritdoc />
-    public MutationRunResult? TryRebuild(
+    public TargetResult? TryRebuild(
         string snapshotPath,
         string? fingerprint,
         string testAssemblyPath,
         string mutatedAssemblyPath,
-        PhaseTimings timings
+        string targetName
     )
     {
         var document = SnapshotStore.Load(snapshotPath);
@@ -22,7 +22,7 @@ public sealed class Snapshots : ISnapshots
             return null;
         }
 
-        return SnapshotReconstruction.Rebuild(document!, timings);
+        return SnapshotReconstruction.Rebuild(document!, targetName);
     }
 
     /// <inheritdoc />

@@ -1,8 +1,7 @@
 namespace Mutation.Composition;
 
 /// <summary>外から受け取る一回の変異検査の設定</summary>
-/// <param name="ProjectPath">変異対象 project の csproj の絶対 path</param>
-/// <param name="TestProjectPath">テスト project の csproj の絶対 path</param>
+/// <param name="Targets">変異対象 project とテスト project の対の列</param>
 /// <param name="Configuration">build 構成の名前</param>
 /// <param name="Concurrency">同時に走らせる worker 数</param>
 /// <param name="ValidateSurvivors">生存した変異を新規 process で再検証するか</param>
@@ -14,8 +13,7 @@ namespace Mutation.Composition;
 /// <param name="OutputDirectory">報告と中間物を置く directory</param>
 /// <param name="WithBaseline">前回実行の保存から判定を継承するか</param>
 public sealed record MutationRunOptions(
-    string ProjectPath,
-    string TestProjectPath,
+    IReadOnlyList<TargetSpec> Targets,
     string Configuration,
     int Concurrency,
     bool ValidateSurvivors,
@@ -38,3 +36,8 @@ public sealed record MutationRunOptions(
         + $"exclude-static:{ExcludeStatic}\n"
         + $"validate-survivors:{ValidateSurvivors}";
 }
+
+/// <summary>変異対象 project とテスト project の対</summary>
+/// <param name="ProjectPath">変異対象 project の csproj の絶対 path</param>
+/// <param name="TestProjectPath">テスト project の csproj の絶対 path</param>
+public sealed record TargetSpec(string ProjectPath, string TestProjectPath);

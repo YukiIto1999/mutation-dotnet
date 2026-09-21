@@ -12,8 +12,8 @@ namespace Mutation.Cli.Commands;
 public static class RunCommand
 {
     /// <summary>対象 project の変異検査の、最初から最後までの実行</summary>
-    /// <param name="project">-p, 変異対象 project の csproj の path</param>
-    /// <param name="testProject">-t, テスト project の csproj の path</param>
+    /// <param name="project">-p, 変異対象 project の csproj の path。複数は `,` 区切り</param>
+    /// <param name="testProject">-t, テスト project の csproj の path。`--project` と同数を同じ順で並べる</param>
     /// <param name="configuration">build 構成の名前</param>
     /// <param name="concurrency">同時に走らせる worker 数。0 なら論理コア数の半分</param>
     /// <param name="output">報告と中間物を置く directory</param>
@@ -27,8 +27,8 @@ public static class RunCommand
     /// <param name="withBaseline">前回実行の保存からの、変わっていない変異の判定の継承</param>
     /// <returns>成功なら 0、失敗なら 1、score が break-at 未満なら 2</returns>
     public static async Task<int> Run(
-        string project,
-        string testProject,
+        string[] project,
+        string[] testProject,
         string configuration = "Debug",
         int concurrency = 0,
         string output = ".mutation-output",
@@ -42,10 +42,17 @@ public static class RunCommand
         bool withBaseline = false
     )
     {
+        if (project.Length == 0 || project.Length != testProject.Length)
+        {
+            await Console.Error.WriteLineAsync(
+                $"--project と --test-project は同数を同じ順で指定する (project {project.Length} 件、test-project {testProject.Length} 件)"
+            ).ConfigureAwait(false);
+            return 1;
+        }
+
         var resolved = concurrency > 0 ? concurrency : Math.Max(1, Environment.ProcessorCount / 2);
         var options = new MutationRunOptions(
-            Path.GetFullPath(project),
-            Path.GetFullPath(testProject),
+            [.. project.Zip(testProject, (p, t) => new TargetSpec(Path.GetFullPath(p), Path.GetFullPath(t)))],
             configuration,
             resolved,
             validateSurvivors,
@@ -72,9 +79,17 @@ public static class RunCommand
         return await ExitCodeAsync(result, breakAt).ConfigureAwait(false);
     }
 
-    /// <summary>--break-at と score の突き合わせによる終了コードの決定</summary>
+    /// <summary>中断した対象と --break-at と score の突き合わせによる終了コードの決定</summary>
     private static async Task<int> ExitCodeAsync(MutationRunResult result, double breakAt)
     {
+        if (result.Failures.Any())
+        {
+            await Console.Error.WriteLineAsync(
+                $"{result.Failures.Count()} 件の対象が中断した: {string.Join(", ", result.Failures.Select(f => f.Name))}"
+            ).ConfigureAwait(false);
+            return 1;
+        }
+
         if (breakAt < 0 || result.Score is not { } score || score * 100 >= breakAt)
         {
             return 0;

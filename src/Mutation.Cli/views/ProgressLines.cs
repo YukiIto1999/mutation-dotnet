@@ -14,6 +14,9 @@ public static class ProgressLines
         progress switch
         {
             RunProgress.BuildCompleted build => $"build 完了 {build.Ms:F0}ms",
+            RunProgress.TargetStarted target => $"[{target.Index}/{target.Total}] {target.Name}",
+            RunProgress.TargetAbandoned abandoned =>
+                $"[中断] {abandoned.Name}: {FailureLines.Describe(abandoned.Failure)}",
             RunProgress.SnapshotMatched => "前回の保存と生成入力が完全一致。変異と判定を前回から再利用",
             RunProgress.MutantsGenerated generated =>
                 $"変異 {generated.Mutants} 件生成 (compile error {generated.CompileErrors} 件) "
