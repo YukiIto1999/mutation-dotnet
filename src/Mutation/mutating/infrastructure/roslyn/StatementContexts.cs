@@ -28,7 +28,10 @@ public static class StatementContexts
                 swap.OperatorName,
                 swap.ReplacementText,
                 swap.InStaticContext
-            ),
+            )
+            {
+                ReportTarget = swap.ReportTarget,
+            },
             ForStatementSyntax loop when loop.Incrementors.Contains(swap.Expression) => ForSwap(
                 swap,
                 loop,
@@ -48,14 +51,20 @@ public static class StatementContexts
                     swap.OperatorName,
                     swap.ReplacementText,
                     swap.InStaticContext
-                ),
+                )
+                {
+                    ReportTarget = swap.ReportTarget,
+                },
             LambdaExpressionSyntax lambda when IsVoidLambda(lambda, model) => new MutationCandidate.VoidArrowSwap(
                 lambda,
                 swap.Apply,
                 swap.OperatorName,
                 swap.ReplacementText,
                 swap.InStaticContext
-            ),
+            )
+            {
+                ReportTarget = swap.ReportTarget,
+            },
             _ => swap,
         };
     }
@@ -84,7 +93,10 @@ public static class StatementContexts
             swap.OperatorName,
             swap.ReplacementText,
             swap.InStaticContext
-        );
+        )
+        {
+            ReportTarget = swap.ReportTarget,
+        };
 
     /// <summary>本体が値を返さない宣言かの判定</summary>
     private static bool IsVoidLike(SyntaxNode owner, SemanticModel model) =>
