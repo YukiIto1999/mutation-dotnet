@@ -11,14 +11,14 @@ public interface ISnapshots
     /// <param name="fingerprint">今回の生成入力の指紋</param>
     /// <param name="testAssemblyPath">今回のテスト assembly の絶対 path</param>
     /// <param name="mutatedAssemblyPath">前回の変異 assembly の置き場</param>
-    /// <param name="timings">今回の段階別所要時間</param>
-    /// <returns>前回と同じ判定を持つ確定結果。一致しなければ不在</returns>
-    MutationRunResult? TryRebuild(
+    /// <param name="targetName">対象 project の名前</param>
+    /// <returns>前回と同じ判定を持つ対象の確定結果。一致しなければ不在</returns>
+    TargetResult? TryRebuild(
         string snapshotPath,
         string? fingerprint,
         string testAssemblyPath,
         string mutatedAssemblyPath,
-        PhaseTimings timings
+        string targetName
     );
 
     /// <summary>前回の保存から継承できる判定の取得</summary>

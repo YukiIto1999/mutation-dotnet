@@ -19,13 +19,14 @@ public sealed class MutationTesting(RunMutationTesting workflow)
     ) =>
         workflow.ExecuteAsync(
             new RunRequest(
-                new TargetRequest(options.ProjectPath, options.TestProjectPath, options.Configuration),
+                options
+                    .Targets.Select(t => new TargetRequest(t.ProjectPath, t.TestProjectPath, options.Configuration))
+                    .ToArray(),
                 new SelectionRequest(
                     options.MutatePatterns,
                     options.SinceRef,
                     options.IgnoredOperators,
-                    options.IgnoredMethods,
-                    options.ProjectPath
+                    options.IgnoredMethods
                 ),
                 new ExecutionSettings(options.Concurrency, options.ValidateSurvivors, options.ExcludeStatic),
                 options.WithBaseline ? options.FingerprintSettings() : null,

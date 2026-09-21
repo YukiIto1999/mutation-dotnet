@@ -18,7 +18,10 @@ public sealed class RunMutationTesting(
     IVerificationReports reports
 )
 {
-    /// <summary>全段階の実行による確定結果の算出。成功時は報告も書き出す</summary>
+    /// <summary>対象一件の遂行</summary>
+    private readonly TargetRun targetRun = new(mutantSource, verifyMutants, workerRuns, snapshots);
+
+    /// <summary>全対象の全段階の実行による確定結果の算出。成功時は報告も書き出す</summary>
     /// <param name="request">一回の変異検査の入力</param>
     /// <param name="progress">進行を伝える通知先</param>
     /// <returns>成功なら確定結果、失敗なら中断理由</returns>
@@ -30,148 +33,132 @@ public sealed class RunMutationTesting(
         var clock = new PhaseClock();
         var layout = new RunLayout(request.OutputDirectory);
         var located = await mutantSource
-            .PrepareAsync(request.Target, layout.WorkDirectory, request.WithBaseline ? request.FingerprintSettings : null)
+            .PrepareAsync(
+                request.Targets,
+                layout.WorkDirectory,
+                request.WithBaseline ? request.FingerprintSettings : null
+            )
             .ConfigureAwait(false);
         var buildMs = clock.EndPhase();
         progress(new RunProgress.BuildCompleted(buildMs));
-        if (located is Result<PreparedTarget, PipelineFailure>.Failed(var locateFailure))
+        if (
+            located
+            is Result<IReadOnlyList<Result<PreparedTarget, PipelineFailure>>, PipelineFailure>.Failed(
+                var buildFailure
+            )
+        )
         {
-            return new Result<MutationRunResult, PipelineFailure>.Failed(locateFailure);
+            return new Result<MutationRunResult, PipelineFailure>.Failed(buildFailure);
         }
 
-        var target = ((Result<PreparedTarget, PipelineFailure>.Succeeded)located).Value;
-        var session = new PipelineSession(request, layout, target.Fingerprint, buildMs, progress, clock);
-        if (request.WithBaseline && TryRebuild(session, target) is { } reused)
-        {
-            return Publish(request, layout, reused);
-        }
-
-        var outcome = await MutateAndTestAsync(session, target).ConfigureAwait(false);
-        if (outcome is Result<MutationRunResult, PipelineFailure>.Succeeded(var result))
-        {
-            return Publish(request, layout, result);
-        }
-
-        return outcome;
-    }
-
-    /// <summary>成功結果の報告書き出しと返却</summary>
-    private Result<MutationRunResult, PipelineFailure> Publish(
-        RunRequest request,
-        RunLayout layout,
-        MutationRunResult result
-    )
-    {
-        reports.Write(result, Path.GetDirectoryName(request.Target.ProjectPath) ?? ".", layout.ReportsDirectory);
+        var targets = (
+            (Result<IReadOnlyList<Result<PreparedTarget, PipelineFailure>>, PipelineFailure>.Succeeded)located
+        ).Value;
+        var session = new PipelineSession(request, layout, progress, clock);
+        var outcomes = await RunEachAsync(session, targets, TargetNames(request.Targets)).ConfigureAwait(false);
+        var result = new MutationRunResult(outcomes, MutationRunResult.Aggregate(outcomes, buildMs, clock.TotalMs));
+        reports.Write(result, ReportRoot(request.Targets), layout.ReportsDirectory);
         return new Result<MutationRunResult, PipelineFailure>.Succeeded(result);
     }
 
-    /// <summary>保存と生成入力が完全一致したときの、前回結果の再利用。一致しなければ不在</summary>
-    private MutationRunResult? TryRebuild(PipelineSession session, PreparedTarget target)
-    {
-        var timings = new PhaseTimings(session.BuildMs, 0, 0, 0, 0, session.Clock.TotalMs);
-        var rebuilt = snapshots.TryRebuild(
-            session.Layout.SnapshotPath,
-            session.Fingerprint,
-            target.TestAssemblyPath,
-            Path.Combine(session.Layout.MutatedDirectory, target.TargetAssemblyName + ".dll"),
-            timings
-        );
-        if (rebuilt is not null)
-        {
-            session.Progress(new RunProgress.SnapshotMatched());
-        }
-
-        return rebuilt;
-    }
-
-    /// <summary>変異の生成からテスト実行までの後半段階の遂行</summary>
-    private async Task<Result<MutationRunResult, PipelineFailure>> MutateAndTestAsync(
+    /// <summary>対象を順に検査しての帰結の収集。一件の中断は残りの検査を妨げない形</summary>
+    private async Task<IReadOnlyList<TargetOutcome>> RunEachAsync(
         PipelineSession session,
-        PreparedTarget target
+        IReadOnlyList<Result<PreparedTarget, PipelineFailure>> targets,
+        string[] names
     )
     {
-        var compiled = mutantSource.Generate(session.Request.Selection, session.Layout.MutatedDirectory);
-        if (compiled is Result<GeneratedMutants, PipelineFailure>.Failed(var compileFailure))
+        var outcomes = new List<TargetOutcome>(targets.Count);
+        for (var index = 0; index < targets.Count; index++)
         {
-            return new Result<MutationRunResult, PipelineFailure>.Failed(compileFailure);
+            session.Progress(new RunProgress.TargetStarted(names[index], index + 1, targets.Count));
+            outcomes.Add(await OutcomeAsync(session, targets[index], names[index]).ConfigureAwait(false));
         }
 
-        var artifact = ((Result<GeneratedMutants, PipelineFailure>.Succeeded)compiled).Value;
-        session.Progress(
-            new RunProgress.MutantsGenerated(
-                artifact.Mutants.Count,
-                artifact.CompileErrorIds.Count,
-                artifact.MutateMs,
-                artifact.CompileMs
-            )
-        );
-        var launch = new WorkerLaunchPlan(
-            Path.Combine(AppContext.BaseDirectory, "Mutation.Worker.dll"),
-            target.TestAssemblyPath,
-            session.Layout.MutatedDirectory,
-            target.TargetAssemblyName,
-            session.Layout.TestResultsDirectory
-        );
-        return await TestAsync(session, artifact, launch).ConfigureAwait(false);
+        return outcomes;
     }
 
-    /// <summary>baseline 観測から判定確定までの遂行</summary>
-    private async Task<Result<MutationRunResult, PipelineFailure>> TestAsync(
+    /// <summary>対象一件の帰結の算出。準備の失敗はそのまま中断として記録</summary>
+    private async Task<TargetOutcome> OutcomeAsync(
         PipelineSession session,
-        GeneratedMutants artifact,
-        WorkerLaunchPlan launch
+        Result<PreparedTarget, PipelineFailure> target,
+        string name
     )
     {
-        session.Clock.StartPhase();
-        var observed = await workerRuns.ObserveAsync(launch, session.Request.Execution.Concurrency).ConfigureAwait(false);
-        if (observed is Result<BaselineProfile, PipelineFailure>.Failed(var baselineFailure))
+        if (target is Result<PreparedTarget, PipelineFailure>.Failed prepareFailure)
         {
-            return new Result<MutationRunResult, PipelineFailure>.Failed(baselineFailure);
+            return Abandon(session, name, prepareFailure.Failure, 0);
         }
 
-        var baseline = ((Result<BaselineProfile, PipelineFailure>.Succeeded)observed).Value;
-        var baselineMs = session.Clock.EndPhase();
-        session.Progress(
-            new RunProgress.BaselineCompleted(
-                baselineMs,
-                baseline.Tests.Count,
-                baseline.Tests.Count(t => !t.BaselinePassed)
-            )
-        );
-        var verdicts = await verifyMutants
-            .ExecuteAsync(
-                new VerificationRequest(
-                    artifact.Mutants,
-                    artifact.CompileErrorIds,
-                    baseline,
-                    launch,
-                    session.Request.Execution,
-                    session.Request.WithBaseline,
-                    session.Fingerprint,
-                    artifact.MutatedAssemblyPath,
-                    session.Layout.SnapshotPath,
-                    session.Progress
-                )
-            )
-            .ConfigureAwait(false);
-        var timings = new PhaseTimings(
-            session.BuildMs,
-            artifact.MutateMs,
-            artifact.CompileMs,
-            baselineMs,
-            session.Clock.EndPhase(),
-            session.Clock.TotalMs
-        );
-        return new Result<MutationRunResult, PipelineFailure>.Succeeded(
-            new MutationRunResult(
-                artifact.Mutants,
-                verdicts.Verdicts,
-                baseline.Tests,
-                timings,
-                verdicts.Timings,
-                verdicts.WorkerRestarts
-            )
-        );
+        var prepared = ((Result<PreparedTarget, PipelineFailure>.Succeeded)target).Value;
+        var outcome = await targetRun.ExecuteAsync(session, prepared, name).ConfigureAwait(false);
+        return outcome switch
+        {
+            Result<TargetResult, PipelineFailure>.Succeeded succeeded => new TargetOutcome.Completed(succeeded.Value),
+            Result<TargetResult, PipelineFailure>.Failed failed => Abandon(
+                session,
+                name,
+                failed.Failure,
+                session.Clock.EndPhase()
+            ),
+        };
     }
+
+    /// <summary>置き場と報告で対象を指す名前の決定。重複は連番の付加による一意化</summary>
+    private static string[] TargetNames(IReadOnlyList<TargetRequest> targets)
+    {
+        var used = new HashSet<string>(StringComparer.Ordinal);
+        var names = new string[targets.Count];
+        for (var index = 0; index < targets.Count; index++)
+        {
+            var stem = Path.GetFileNameWithoutExtension(targets[index].ProjectPath);
+            var name = stem;
+            var suffix = 1;
+            while (!used.Add(name))
+            {
+                suffix++;
+                name = $"{stem}-{suffix}";
+            }
+
+            names[index] = name;
+        }
+
+        return names;
+    }
+
+    /// <summary>対象一件の中断の記録。残る対象の検査への影響なし</summary>
+    private static TargetOutcome.Failed Abandon(
+        PipelineSession session,
+        string name,
+        PipelineFailure failure,
+        double elapsedMs
+    )
+    {
+        session.Progress(new RunProgress.TargetAbandoned(name, failure));
+        return new TargetOutcome.Failed(name, failure, elapsedMs);
+    }
+
+    /// <summary>報告内の相対 path の基準になる、全対象 project を含む directory</summary>
+    private static string ReportRoot(IReadOnlyList<TargetRequest> targets)
+    {
+        var common = Segments(targets[0]);
+        foreach (var target in targets.Skip(1))
+        {
+            var other = Segments(target);
+            var shared = 0;
+            while (shared < common.Length && shared < other.Length && common[shared] == other[shared])
+            {
+                shared++;
+            }
+
+            common = common[..shared];
+        }
+
+        var root = string.Join(Path.DirectorySeparatorChar, common);
+        return root.Length == 0 ? Path.DirectorySeparatorChar.ToString() : root;
+    }
+
+    /// <summary>対象 project が居る directory の、区切りで割った要素列</summary>
+    private static string[] Segments(TargetRequest target) =>
+        (Path.GetDirectoryName(target.ProjectPath) ?? ".").Split(Path.DirectorySeparatorChar);
 }

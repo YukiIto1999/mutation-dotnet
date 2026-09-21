@@ -30,7 +30,7 @@ public sealed class SnapshotReconstructionFacts
     {
         var (testAssembly, mutatedAssembly) = Artifacts();
         var document = Document(testAssembly, mutatedAssembly);
-        var result = SnapshotReconstruction.Rebuild(document, new PhaseTimings(1, 0, 0, 0, 0, 1));
+        var result = SnapshotReconstruction.Rebuild(document, "Target");
         await Assert.That(result.Mutants.Count).IsEqualTo(2);
         await Assert.That(result.Verdicts[new MutantId(0)] is MutantVerdict.Killed { KillerTest: "t1" }).IsTrue();
         await Assert.That(result.Verdicts[new MutantId(1)] is MutantVerdict.Survived).IsTrue();

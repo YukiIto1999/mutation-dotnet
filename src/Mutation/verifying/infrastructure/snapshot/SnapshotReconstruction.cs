@@ -26,11 +26,11 @@ public static class SnapshotReconstruction
         && File.Exists(mutatedAssemblyPath)
         && document.MutatedAssemblyHash == SnapshotStore.HashOf(mutatedAssemblyPath);
 
-    /// <summary>保存からの実行全体の確定結果の再構築</summary>
+    /// <summary>保存からの対象の確定結果の再構築</summary>
     /// <param name="document">完全一致した前回の保存</param>
-    /// <param name="timings">今回の段階別所要時間</param>
+    /// <param name="targetName">対象 project の名前</param>
     /// <returns>前回と同じ判定を持つ確定結果</returns>
-    public static MutationRunResult Rebuild(SnapshotDocument document, PhaseTimings timings)
+    public static TargetResult Rebuild(SnapshotDocument document, string targetName)
     {
         var mutants = new List<Mutant>();
         var verdicts = new Dictionary<MutantId, MutantVerdict>();
@@ -58,6 +58,6 @@ public static class SnapshotReconstruction
         var tests = (document.Tests ?? [])
             .Select((t, index) => new TestCaseInfo(new TestIndex(index), t.Name, t.Ms, t.Passed))
             .ToArray();
-        return new MutationRunResult(mutants, verdicts, tests, timings, [], 0);
+        return new TargetResult(targetName, mutants, verdicts, tests, TargetTimings.None, [], 0);
     }
 }

@@ -122,6 +122,19 @@ public sealed class SchemataRewriter : CSharpSyntaxRewriter
         foreach (var (id, candidate) in pairs)
         {
             var swap = (MutationCandidate.ExpressionSwap)candidate;
+            if (swap.UsesInlineBooleanToggle)
+            {
+                var toggled = SyntaxFactory
+                    .BinaryExpression(
+                        SyntaxKind.ExclusiveOrExpression,
+                        Parenthesize(visited),
+                        IsActiveCall(id)
+                    )
+                    .WithAdditionalAnnotations(Annotation(id));
+                woven = Parenthesize(toggled);
+                continue;
+            }
+
             var conditional = SyntaxFactory
                 .ConditionalExpression(IsActiveCall(id), Parenthesize(swap.Apply(visited)), woven)
                 .WithAdditionalAnnotations(Annotation(id));

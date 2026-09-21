@@ -11,6 +11,7 @@ Mutation testing is usually slow because each mutant pays for a build and a test
 - **Mutant schemata** — all mutants are compiled into a single Roslyn compilation and switched at run time, so there is one build instead of one per mutant.
 - **Resident in-process test hosts** — worker processes keep the test framework loaded and run only the tests that cover the active mutant, with per-test coverage and fail-fast.
 - **Semantic-aware generation** — mutations that cannot compile are excluded by type checks before emit, so compile-error mutants are avoided instead of rolled back one by one.
+- **RelationalPatternMutator** — swaps relational pattern operators while preserving compilable switch coverage.
 - **Snapshot inheritance** — verdicts from the previous run are inherited for unchanged mutants, and a fully unchanged input short-circuits the whole run.
 
 Measured on a real 21-module project, a full run over 2,921 mutants finishes in 4 minutes 21 seconds with zero compile-error mutants. On an 18,000-mutant project, an unchanged re-run short-circuits through snapshot inheritance in 32 seconds.
@@ -32,10 +33,23 @@ dotnet src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll run \
   --output .mutation-output
 ```
 
+For a repository split into per-module projects, pass the pairs as comma-separated lists. The build runs once and the reports are merged.
+
+```bash
+dotnet src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll run \
+  --project core/a/A.csproj,core/b/B.csproj \
+  --test-project core/a/tests/A.Tests.csproj,core/b/tests/B.Tests.csproj \
+  --output .mutation-output
+```
+
+A target that fails does not stop the others. Abandoned targets appear in the summary and in `timings.json`, and the exit code becomes 1.
+
 ## Options
 
 | Option | Meaning |
 |---|---|
+| `--project PATHS` | Projects to mutate. `,` separates several |
+| `--test-project PATHS` | Test projects. Same count and order as `--project` |
 | `--concurrency N` | Number of workers. Defaults to half the logical cores |
 | `--configuration NAME` | Build configuration. Defaults to Debug |
 | `--mutate GLOBS` | Globs of files to mutate, relative to the project directory. `!` excludes, `,` separates |

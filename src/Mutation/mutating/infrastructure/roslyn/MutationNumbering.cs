@@ -53,8 +53,8 @@ public static class MutationNumbering
     /// <summary>候補から報告用の変異の素性への写像。断片は 200 字で切る</summary>
     private static Mutant ToMutant(int id, MutationCandidate candidate, SyntaxTree tree)
     {
-        var span = candidate.Target.GetLocation().GetLineSpan();
-        var original = candidate.Target.ToString();
+        var span = candidate.ReportTarget.GetLocation().GetLineSpan();
+        var original = candidate.ReportTarget.ToString();
         return new Mutant(
             new MutantId(id),
             candidate.OperatorName,

@@ -3,18 +3,14 @@ using System.Diagnostics;
 
 namespace Mutation.Verifying.Application;
 
-/// <summary>一回の実行で段階を跨いで共有する文脈</summary>
+/// <summary>一回の実行で段階と対象を跨いで共有する文脈</summary>
 /// <param name="Request">一回の変異検査の入力</param>
 /// <param name="Layout">出力 directory 配下の置き場の取り決め</param>
-/// <param name="Fingerprint">変異の生成入力の指紋。baseline を使わないなら不在</param>
-/// <param name="BuildMs">初回 build の所要時間</param>
 /// <param name="Progress">進行を伝える通知先</param>
 /// <param name="Clock">段階と全体の所要時間の計測</param>
 public sealed record PipelineSession(
     RunRequest Request,
     RunLayout Layout,
-    string? Fingerprint,
-    double BuildMs,
     Action<RunProgress> Progress,
     PhaseClock Clock
 );

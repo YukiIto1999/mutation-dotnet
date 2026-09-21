@@ -1,3 +1,4 @@
+using Mutation.Shared;
 using TypeModeling.Domain;
 
 namespace Mutation.Verifying.Domain;
@@ -14,6 +15,17 @@ public abstract record RunProgress
     /// <summary>対象の build が終わった</summary>
     /// <param name="Ms">build の所要時間</param>
     public sealed record BuildCompleted(double Ms) : RunProgress;
+
+    /// <summary>対象一件の検査の開始</summary>
+    /// <param name="Name">対象 project の名前</param>
+    /// <param name="Index">何件目か。1 起点</param>
+    /// <param name="Total">対象の総数</param>
+    public sealed record TargetStarted(string Name, int Index, int Total) : RunProgress;
+
+    /// <summary>対象一件の検査の中断。残る対象は継続</summary>
+    /// <param name="Name">対象 project の名前</param>
+    /// <param name="Failure">中断の理由</param>
+    public sealed record TargetAbandoned(string Name, PipelineFailure Failure) : RunProgress;
 
     /// <summary>保存と生成入力の完全一致による、前回の変異と判定の再利用</summary>
     public sealed record SnapshotMatched : RunProgress;

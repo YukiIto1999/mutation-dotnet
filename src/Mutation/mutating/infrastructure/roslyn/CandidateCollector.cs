@@ -13,6 +13,7 @@ public static class CandidateCollector
     public static IReadOnlyList<IMutationOperator> DefaultOperators { get; } =
         [
             new BinaryOperatorMutator(),
+            new RelationalPatternMutator(),
             new AssignmentMutator(),
             new UnaryMutator(),
             new LiteralMutator(),
@@ -91,7 +92,7 @@ public static class CandidateCollector
         candidate switch
         {
             MutationCandidate.ExpressionSwap swap => !MutationContexts.IsForbidden(swap.Expression, model)
-                && !MutationContexts.HasExpressionHazard(swap.Expression),
+                && (swap.AllowsExpressionHazard || !MutationContexts.HasExpressionHazard(swap.Expression)),
             MutationCandidate.StatementSwap swap => !MutationContexts.IsForbidden(swap.Statement, model),
             MutationCandidate.BodyGuard => true,
             MutationCandidate.VoidArrowSwap => true,

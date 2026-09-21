@@ -17,18 +17,25 @@ public abstract record MutationCandidate(
     bool InStaticContext
 )
 {
+    /// <summary>報告上の位置と元コードに使う構文 node</summary>
+    public SyntaxNode ReportTarget { get; init; } = Target;
+
     /// <summary>式を別の式へ置き換える候補。三項演算子の schemata への織り込み</summary>
     /// <param name="Expression">変異元の式</param>
     /// <param name="Apply">子孫の schemata 化が済んだ式から変異後の式を作る変換</param>
     /// <param name="OperatorName">候補を生成した演算子の名前</param>
     /// <param name="ReplacementText">報告に載せる変異後のコード断片</param>
     /// <param name="InStaticContext">static 初期化文脈にあるか</param>
+    /// <param name="AllowsExpressionHazard">式の三項化で束縛を壊す可能性の許容可否</param>
+    /// <param name="UsesInlineBooleanToggle">式内の真偽反転による宣言束縛範囲の維持可否</param>
     public sealed record ExpressionSwap(
         ExpressionSyntax Expression,
         Func<ExpressionSyntax, ExpressionSyntax> Apply,
         string OperatorName,
         string ReplacementText,
-        bool InStaticContext
+        bool InStaticContext,
+        bool AllowsExpressionHazard = false,
+        bool UsesInlineBooleanToggle = false
     ) : MutationCandidate(Expression, OperatorName, ReplacementText, InStaticContext);
 
     /// <summary>文を別の文へ置き換える候補。if の分岐の schemata への織り込み</summary>
