@@ -35,9 +35,10 @@ public static class SchemataCompiler
         );
         var disabled = new HashSet<int>();
         var disabledStatics = new HashSet<string>();
+        Dictionary<SyntaxTree, SyntaxTree> mutatedTrees = [];
         for (var round = 0; round < MaxRollbackRounds; round++)
         {
-            var mutatedTrees = RewriteAll(target, collected, disabled, disabledStatics);
+            mutatedTrees = RewriteAll(target, collected, disabled, disabledStatics);
             var compilation = BuildCompilation(target, mutatedTrees.Values, switchTree);
             Result<string, IReadOnlyList<Diagnostic>> emitted;
             try
@@ -73,9 +74,7 @@ public static class SchemataCompiler
             disabledStatics.UnionWith(culprits.StaticKeys);
         }
 
-        return new Result<MutatedArtifact, PipelineFailure>.Failed(
-            new PipelineFailure.CompileFailed($"rollback を {MaxRollbackRounds} 回試しても emit が成功しない")
-        );
+        return Failed($"rollback を {MaxRollbackRounds} 回試しても emit が成功しない", mutatedTrees.Values, outputDirectory);
     }
 
     /// <summary>書換後ソースを診断用に残した上でのコンパイル失敗</summary>
