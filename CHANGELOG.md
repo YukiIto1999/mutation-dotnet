@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] - 2026-09-21
+
+### Added
+
+- Multi-target runs: `--project` and `--test-project` accept comma-separated pairs, the build runs once through a generated solution, per-target artifacts live under `work/<target>/` and `mutated/<target>/`, and one merged report covers every target.
+- Relational pattern mutations (`> x` and its family in `is` patterns, switch expression arms, switch statement labels and property patterns), guarded against replacements that break exhaustiveness or subsume an earlier arm.
+- Negation mutants for conditions that declare `out` or pattern variables, woven as `(condition) ^ IsActive(id)` so definite assignment survives.
+
+### Changed
+
+- A failing target no longer aborts the run. The target is recorded as abandoned with its reason and elapsed time, the remaining targets are still verified, and the exit code becomes 1.
+- Only targets whose compiler arguments are missing from the binlog are rebuilt, instead of rebuilding every target.
+
+### Fixed
+
+- Rewritten sources are written to `mutated/failed-sources/` when the rollback retry limit is reached, matching the other compile-failure paths.
+
 ## [0.1.0] - 2026-08-25
 
 ### Added
