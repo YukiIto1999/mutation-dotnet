@@ -22,7 +22,7 @@ public abstract record MutationCandidate(
 
     /// <summary>式を別の式へ置き換える候補。三項演算子の schemata への織り込み</summary>
     /// <param name="Expression">変異元の式</param>
-    /// <param name="Apply">子孫の schemata 化が済んだ式から変異後の式を作る変換</param>
+    /// <param name="Apply">変異元の式から変異後の式を作る変換</param>
     /// <param name="OperatorName">候補を生成した演算子の名前</param>
     /// <param name="ReplacementText">報告に載せる変異後のコード断片</param>
     /// <param name="InStaticContext">static 初期化文脈にあるか</param>

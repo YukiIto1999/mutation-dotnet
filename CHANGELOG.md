@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- Schemata compilation no longer expands nested boolean expressions exponentially by copying mutated descendants into every alternative. Analyzer projects with long boolean chains can now be mutated without overflowing Roslyn syntax spans.
+- Failed-source dumps retain the rewritten source text and its original trivia rather than normalizing the syntax tree, so diagnostics remain available when compilation fails.
+
 ## [0.3.0] - 2026-10-01
 
 ### Added

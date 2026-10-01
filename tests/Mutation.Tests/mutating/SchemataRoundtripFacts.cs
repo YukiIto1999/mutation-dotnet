@@ -1,3 +1,7 @@
+using Mutation.Mutating.Domain;
+using Mutation.Mutating.Infrastructure.Roslyn;
+using Microsoft.CodeAnalysis.CSharp;
+
 using TUnit.Core;
 
 namespace Mutation.Tests;
@@ -65,6 +69,56 @@ public sealed class SchemataRoundtripFacts
         control.Activate(-1);
         await Assert.That(hits.Length).IsEqualTo(1);
         await Assert.That(control.DrainHits().Length).IsEqualTo(0);
+    }
+
+    /// <summary>入れ子の論理式で子孫の変異を重複させない規約</summary>
+    [Test]
+    public async Task Nested_boolean_mutants_do_not_duplicate_descendant_schemata()
+    {
+        var source = "public static class Predicate { public static bool Match(int value) => "
+            + string.Join(" || ", Enumerable.Range(0, 12).Select(index => $"value == {index}"))
+            + "; }";
+        var (tree, model) = Snippet.Parse(source);
+        var root = await tree.GetRootAsync();
+        var candidates = CandidateCollector.Collect(
+            root, model, CandidateCollector.DefaultOperators, MutationPolicy.Everything);
+        var numbered = candidates.Select((candidate, id) => (id, candidate)).ToArray();
+
+        var rewritten = SchemataRewriter.Rewrite(root, numbered, new HashSet<int>());
+
+        var annotatedIds = rewritten.DescendantNodesAndSelf()
+            .SelectMany(node => node.GetAnnotations(SchemataRewriter.AnnotationKind))
+            .Select(annotation => annotation.Data!)
+            .ToArray();
+        await Assert.That(annotatedIds).IsEquivalentTo(
+            numbered.Select(pair => pair.id.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        var (assembly, count) = Snippet.EmitWithSchemata(source);
+        await Assert.That(count).IsEqualTo(candidates.Count);
+        var match = assembly.GetType("Predicate")!.GetMethod("Match")!;
+        await Assert.That((bool)match.Invoke(null, [11])!).IsTrue();
+    }
+
+    /// <summary>診断用ソースの元の trivia を含む正確な保存</summary>
+    [Test]
+    public async Task Failed_source_dump_preserves_rewritten_text()
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(), "mutation-failed-sources-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            const string source = "class C {\n    int Value = 1; // diagnostic location\n}\n";
+            var tree = CSharpSyntaxTree.ParseText(source, path: "C.cs");
+
+            SchemataEmission.DumpSources([tree], directory);
+
+            await Assert.That(await File.ReadAllTextAsync(Path.Combine(directory, "C.cs")))
+                .IsEqualTo(source);
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, recursive: true);
+        }
     }
 
     private static T Invoke<T>(Type type, string method, params object[] arguments) =>

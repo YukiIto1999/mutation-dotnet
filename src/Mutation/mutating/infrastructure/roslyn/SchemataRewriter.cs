@@ -135,8 +135,12 @@ public sealed class SchemataRewriter : CSharpSyntaxRewriter
                 continue;
             }
 
+            // 同時に活性化する変異は一件のため変異枝への訪問済み子木の複製は不要
             var conditional = SyntaxFactory
-                .ConditionalExpression(IsActiveCall(id), Parenthesize(swap.Apply(visited)), woven)
+                .ConditionalExpression(
+                    IsActiveCall(id),
+                    Parenthesize(swap.Apply(swap.Expression)),
+                    woven)
                 .WithAdditionalAnnotations(Annotation(id));
             woven = Parenthesize(conditional);
         }
