@@ -73,8 +73,7 @@ public static class StrykerReport
         {
             using var document = JsonDocument.Parse(json);
             var root = document.RootElement;
-            var projectRoot = root.GetProperty("projectRoot").GetString()
-                ?? throw new FormatException("projectRoot が空");
+            var projectRoot = RequiredString(root, "projectRoot");
             var mutants = root.GetProperty("files")
                 .EnumerateObject()
                 .SelectMany(file => file.Value.GetProperty("mutants")
@@ -99,7 +98,7 @@ public static class StrykerReport
         var start = location.GetProperty("start");
         var end = location.GetProperty("end");
         return new RecordedMutant(
-            mutant.GetProperty("id").GetString() ?? "",
+            RequiredString(mutant, "id"),
             filePath,
             new SourceSpan(
                 start.GetProperty("line").GetInt32(),
@@ -107,8 +106,8 @@ public static class StrykerReport
                 end.GetProperty("line").GetInt32(),
                 end.GetProperty("column").GetInt32()
             ),
-            mutant.GetProperty("mutatorName").GetString() ?? "",
-            mutant.GetProperty("replacement").GetString() ?? "",
+            RequiredString(mutant, "mutatorName"),
+            RequiredString(mutant, "replacement"),
             Verdict(mutant)
         );
     }
@@ -116,11 +115,15 @@ public static class StrykerReport
     /// <summary>status と最初の検出テストからの確定結果の復元。互換の状態名でなければ失敗</summary>
     private static MutantVerdict Verdict(JsonElement mutant)
     {
-        var status = mutant.GetProperty("status").GetString() ?? "";
+        var status = RequiredString(mutant, "status");
         var killer = mutant.TryGetProperty("killedBy", out var killedBy) && killedBy.GetArrayLength() > 0
             ? killedBy[0].GetString()
             : null;
         var verdict = VerdictNames.Restore(status, killer);
         return VerdictNames.For(verdict) == status ? verdict : throw new FormatException($"未知の status {status}");
     }
+
+    /// <summary>必須の文字列の欄の値。null なら読めない報告として失敗させる</summary>
+    private static string RequiredString(JsonElement element, string name) =>
+        element.GetProperty(name).GetString() ?? throw new FormatException($"{name} が null");
 }

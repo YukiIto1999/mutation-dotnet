@@ -36,7 +36,7 @@ public sealed class RecordedReportFacts
         await Assert.That(report.Mutants[1].Verdict is MutantVerdict.Killed { KillerTest: "Suite.Test" }).IsTrue();
     }
 
-    /// <summary>互換の状態名でない status を持つ報告が、読めない報告として失敗すること</summary>
+    /// <summary>互換の状態名でない status を持つ報告が、その status を名指しした読めない報告として失敗すること</summary>
     [Test]
     public async Task Unknown_status_makes_the_report_unreadable()
     {
@@ -50,8 +50,24 @@ public sealed class RecordedReportFacts
 
         var parsed = StrykerReport.Parse(json, "report.json");
 
-        await Assert.That(parsed is Result<RecordedReport, PipelineFailure>.Failed(PipelineFailure.ReportUnreadable))
-            .IsTrue();
+        await Assert.That(ReasonOf(parsed)).Contains("Pending");
+    }
+
+    /// <summary>必須の文字列の欄が null の報告が、その欄を名指しした読めない報告として失敗すること</summary>
+    [Test]
+    public async Task Null_required_field_makes_the_report_unreadable()
+    {
+        var json = Report(
+            """
+            { "id": null, "mutatorName": "LiteralMutator", "replacement": "1",
+              "location": { "start": { "line": 1, "column": 1 }, "end": { "line": 1, "column": 2 } },
+              "status": "Killed", "killedBy": [], "static": false }
+            """
+        );
+
+        var parsed = StrykerReport.Parse(json, "report.json");
+
+        await Assert.That(ReasonOf(parsed)).Contains("id");
     }
 
     /// <summary>JSON として壊れた報告と、必須の欄を欠く報告が、読めない報告として失敗すること</summary>
@@ -65,6 +81,12 @@ public sealed class RecordedReportFacts
         await Assert.That(parsed is Result<RecordedReport, PipelineFailure>.Failed(PipelineFailure.ReportUnreadable))
             .IsTrue();
     }
+
+    /// <summary>読めない報告の失敗の理由。読めた場合や別の失敗なら不在</summary>
+    private static string? ReasonOf(Result<RecordedReport, PipelineFailure> parsed) =>
+        parsed is Result<RecordedReport, PipelineFailure>.Failed(PipelineFailure.ReportUnreadable { Reason: var reason })
+            ? reason
+            : null;
 
     /// <summary>projectRoot が /repo で、src/A.cs に指定の変異を持つ報告</summary>
     private static string Report(string mutants) =>
