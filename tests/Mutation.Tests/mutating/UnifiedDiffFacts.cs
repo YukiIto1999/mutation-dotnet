@@ -65,6 +65,17 @@ public sealed class UnifiedDiffFacts
         await Assert.That(changes.Overlaps("/repo/C.cs", 1, 2)).IsTrue();
     }
 
+    /// <summary>`diff --git` の見出しより前に来た見出しに似た行が、ファイルとして読まれないこと</summary>
+    [Test]
+    public async Task Header_like_lines_before_the_first_diff_header_are_ignored()
+    {
+        string[] diff = ["+++ b/Stray.cs", "@@ -0,0 +1 @@", "+x"];
+
+        var changes = new ChangedLines(UnifiedDiff.Parse("/repo", diff));
+
+        await Assert.That(changes.Files).IsEmpty();
+    }
+
     /// <summary>git が引用した path が、escape と 8 進数の byte を解いた元の path として読まれること</summary>
     [Test]
     public async Task Quoted_paths_are_read_as_the_original_path()
