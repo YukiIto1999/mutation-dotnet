@@ -53,7 +53,7 @@ public static class SchemataEmission
                 target = Path.Combine(directory, $"{stem}.{suffix}.cs");
             }
 
-            File.WriteAllText(target, tree.GetRoot().NormalizeWhitespace().ToFullString());
+            File.WriteAllText(target, tree.GetRoot().ToFullString());
         }
 
         return directory;
