@@ -23,7 +23,7 @@ devenv が .NET SDK と検証入口を管理する。作業前にリポジトリ
 
 ## コミット
 
-`型: 要約` の一行で書き、型はブランチの prefix に揃える。要約は変更内容が読み取れる日本語の体言止めにし、本文は付けない。一つのコミットには一つの関心のみを含め、無関係な変更は分ける。`Co-authored-by` などの自動生成痕跡は残さない(`commit-msg` フックが拒否する)。
+`型: 要約` の一行で書き、型はブランチの prefix に揃える。要約は変更の目的を日本語の体言止めで書き、本文は付けない。要約の書き方は architecture-standard の [commit-purpose](https://github.com/YukiIto1999/architecture-standard/blob/2d5651cae312e9d49763dd40786660f5970a1d24/principles/documentation/commit-purpose.md) と [sentence-endings](https://github.com/YukiIto1999/architecture-standard/blob/2d5651cae312e9d49763dd40786660f5970a1d24/principles/documentation/sentence-endings.md) に従う。一つのコミットには一つの関心のみを含め、無関係な変更は分ける。`Co-authored-by` などの自動生成痕跡は残さない(`commit-msg` フックが拒否する)。
 
 ## マージ
 
