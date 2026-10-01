@@ -6,13 +6,16 @@ namespace Mutation.Mutating.Infrastructure.Git;
 /// <summary>`git diff -U0` の出力からの、新しい側で変わった行の読み取り</summary>
 public static class UnifiedDiff
 {
+    /// <summary>差分を出させるときに新しい側の path へ付けさせる接頭辞。`--dst-prefix` に渡す値</summary>
+    public const string NewSidePrefix = "b/";
+
     /// <summary>新しい側の file 名を示す見出しの接頭辞</summary>
     private const string NewFileHeader = "+++ ";
 
     /// <summary>差分の出力から、ファイルごとの変わった行の範囲の読み取り</summary>
-    /// <remarks>見出しの path は `b/` 接頭辞付きで出させた形を前提にする。削除されたファイルは含めない</remarks>
+    /// <remarks>見出しの path は <see cref="NewSidePrefix"/> 付きで出させた形を前提にする。削除されたファイルは含めない</remarks>
     /// <param name="root">差分の path の基準になる repository の root</param>
-    /// <param name="lines">`git diff -U0 --src-prefix=a/ --dst-prefix=b/` の出力の行</param>
+    /// <param name="lines">`git diff -U0 --dst-prefix=b/` の出力の行</param>
     /// <returns>ファイルの絶対 path から、変わった行の範囲の列への対応</returns>
     public static IReadOnlyDictionary<string, IReadOnlyList<LineRange>> Parse(string root, IEnumerable<string> lines)
     {
@@ -24,7 +27,6 @@ public static class UnifiedDiff
             if (line.StartsWith("diff --git ", StringComparison.Ordinal))
             {
                 inHeader = true;
-                current = null;
             }
             else if (inHeader && line.StartsWith(NewFileHeader, StringComparison.Ordinal))
             {
@@ -44,7 +46,7 @@ public static class UnifiedDiff
         );
     }
 
-    /// <summary>見出しが指す新しい側のファイルの範囲の列。削除されたファイルなら不在</summary>
+    /// <summary>見出しが指す新しい側のファイルの、空の範囲の列の登録。削除されたファイルなら不在</summary>
     private static List<LineRange>? NewSide(string root, string headerPath, Dictionary<string, List<LineRange>> ranges)
     {
         if (headerPath == "/dev/null")
@@ -52,15 +54,8 @@ public static class UnifiedDiff
             return null;
         }
 
-        var relative = GitPathQuoting.Unquote(headerPath);
-        var withoutPrefix = relative.StartsWith("b/", StringComparison.Ordinal) ? relative[2..] : relative;
-        var absolute = Path.GetFullPath(Path.Combine(root, withoutPrefix));
-        if (!ranges.TryGetValue(absolute, out var list))
-        {
-            list = [];
-            ranges[absolute] = list;
-        }
-
+        var list = new List<LineRange>();
+        ranges[Path.GetFullPath(Path.Combine(root, GitPathQuoting.Unquote(headerPath)[NewSidePrefix.Length..]))] = list;
         return list;
     }
 

@@ -27,7 +27,7 @@ public static class ChangedFiles
             [
                 "-c", "core.quotePath=false",
                 "diff", "-U0", "--no-color", "--no-ext-diff", "--no-textconv", "--no-relative",
-                "--src-prefix=a/", "--dst-prefix=b/", sinceRef, "--",
+                $"--dst-prefix={UnifiedDiff.NewSidePrefix}", sinceRef, "--",
             ]
         );
         if (diff is Result<string, PipelineFailure>.Failed(var diffFailure))
@@ -71,11 +71,8 @@ public static class ChangedFiles
             startInfo.ArgumentList.Add(argument);
         }
 
-        using var process = Process.Start(startInfo);
-        if (process is null)
-        {
-            return new Result<string, PipelineFailure>.Failed(new PipelineFailure.SinceUnavailable("git を起動できない"));
-        }
+        using var process = new Process { StartInfo = startInfo };
+        process.Start();
 
         var stderr = new System.Text.StringBuilder();
         process.ErrorDataReceived += (_, e) => stderr.AppendLine(e.Data);
