@@ -92,12 +92,25 @@ dotnet src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll changed-lines \
 
 ## Development
 
-`devenv shell verify` runs the build, all tests, the end-to-end checks, and a self-applied mutation gate: mutation-dotnet mutates its own engine and fails the verification when the score drops below the recorded floor. Branch, commit, and release conventions are described in [CONTRIBUTING.md](CONTRIBUTING.md), and released changes in [CHANGELOG.md](CHANGELOG.md).
+Verification runs through three devenv entries, split by time budget:
+
+- `devenv shell verify` (within 2 minutes, before every commit) builds the solution with every analyzer warning as an error, including cognitive complexity (SonarAnalyzer S3776, threshold 15), and runs the unit tests.
+- `devenv shell verify-push` (within 15 minutes, before every push) runs `verify`, the end-to-end checks on the fixtures (verdict categories, the three test frameworks, the changed-line gate), and the changed-line gate on mutation-dotnet's own engine against the push base. One surviving or uncovered mutant on a changed line fails it.
+- `devenv shell verify-full` (no budget, not a gate, before every release) runs the end-to-end checks and mutation testing over the whole engine, and appends failures and undetected mutants that the previous full run did not report to the backlog.
+
+Branch, commit, and release conventions are described in [CONTRIBUTING.md](CONTRIBUTING.md), and released changes in [CHANGELOG.md](CHANGELOG.md).
 
 ## Limitations
 
 - Linux is the measured platform. The code has no platform-specific assumptions, but Windows and macOS are not yet verified.
 - Mutants that only execute during static initialization are attributed by runtime tracking; with `--exclude-static` they are reported as Ignored.
+
+## Architecture standard
+
+The architecture standard is at `/home/nixos/environment/architecture-standard`.
+Conformance is always judged against the current text of the standard.
+Application follows the four rules of application and the usage procedures in the standard's README.
+Decision records are kept in `docs/decisions/`, outside version control.
 
 ## License
 
