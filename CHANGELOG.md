@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Changed
 
 - `--since` reads the changed files from one `git diff -U0` of the working tree against the ref, so files whose content did not change (pure renames, mode changes) are no longer selected, and a failure to list untracked files now fails the run instead of being ignored.
+- Self-applied verification is split by time budget into `devenv shell verify` (build with cognitive complexity S3776 at threshold 15 as an error, and unit tests), `verify-push` (end-to-end checks and the changed-line gate on the engine) and `verify-full` (whole-engine mutation whose new failures and undetected mutants are appended to a backlog). The score-floor gate and `--exclude-static` are no longer used.
 
 ### Fixed
 
