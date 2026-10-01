@@ -59,13 +59,7 @@ public static class ChangedFiles
     /// <summary>git の一 command の実行と標準出力の取得</summary>
     private static Result<string, PipelineFailure> Run(string workingDirectory, IReadOnlyList<string> arguments)
     {
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = GitLocator.Executable,
-            WorkingDirectory = workingDirectory,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        };
+        var startInfo = GitLocator.StartInfo(workingDirectory);
         foreach (var argument in arguments)
         {
             startInfo.ArgumentList.Add(argument);

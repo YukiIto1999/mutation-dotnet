@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - `--since` now selects untracked files of a project that lives below the repository root; their paths were resolved against the wrong directory.
+- `--since` and `changed-lines` read the repository that contains the project or the report even inside a git hook, which exports `GIT_DIR` and related variables for the calling repository; they used to read that repository and treat the working directory as its work tree.
 
 ## [0.2.0] - 2026-09-21
 

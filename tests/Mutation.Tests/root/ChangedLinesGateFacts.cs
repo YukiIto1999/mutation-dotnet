@@ -160,12 +160,7 @@ public sealed class ChangedLinesGateFacts
         /// <summary>root での git の実行と標準出力。失敗したら例外</summary>
         private async Task<string> GitAsync(params string[] arguments)
         {
-            var startInfo = new ProcessStartInfo(GitLocator.Executable)
-            {
-                WorkingDirectory = Root,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-            };
+            var startInfo = GitLocator.StartInfo(Root);
             foreach (var argument in arguments)
             {
                 startInfo.ArgumentList.Add(argument);

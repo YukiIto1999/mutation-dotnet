@@ -15,6 +15,10 @@ cp -r "$fixture_dir/Fixture.Target" "$fixture_dir/Fixture.Target.Tests" "$work/s
 rm -rf "$work"/src/*/bin "$work"/src/*/obj
 printf 'bin/\nobj/\nout/\n' > "$work/.gitignore"
 
+# git の hook の中から起動されても一時 repository だけを操作するよう、呼び出し元の repository を指す環境変数を外す
+mapfile -t repository_variables < <(git rev-parse --local-env-vars)
+unset "${repository_variables[@]}"
+
 # 基点の commit は hook を起こさない commit-tree で作り、利用者の git 設定はそのまま使う
 export GIT_AUTHOR_NAME=fixture GIT_AUTHOR_EMAIL=fixture@example.invalid
 export GIT_COMMITTER_NAME=fixture GIT_COMMITTER_EMAIL=fixture@example.invalid
@@ -61,6 +65,9 @@ check "未検出あり の終了コード" 2 "$(judge "$base")"
 check "変わった 11 行目の生存" 1 "$(grep -c '^src/Fixture.Target/Calculator.cs:11:[0-9]* Survived ' "$work/stdout" || true)"
 check "未追跡ファイルの未被覆" 1 "$(grep -c '^src/Fixture.Target/Extra.cs:5:[0-9]* NoCoverage ' "$work/stdout" || true)"
 check "変わっていない 9 行目の未被覆" 0 "$(grep -c 'Calculator.cs:9:' "$work/stdout" || true)"
+
+# git の hook の中では呼び出し元の repository が GIT_DIR で export される。その値に引かれず、報告の repository を読む
+check "呼び出し元の GIT_DIR の下での終了コード" 2 "$(GIT_DIR="$(git -C "$repo_root" rev-parse --absolute-git-dir)" judge "$base")"
 
 # 基点を今の内容へ進め、検出される 5 行目と 20 行目だけを書き換える
 git -C "$work" add -A
