@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- `changed-lines` command: reads the `mutation-report.json` of a `run --since REF`, selects the mutants whose line range overlaps a line changed since `REF`, prints the undetected ones (Survived or NoCoverage), and exits with 0 when there are none, 2 when there are, and 1 when the report or the diff cannot be read.
+
+### Changed
+
+- `--since` reads the changed files from one `git diff -U0` of the working tree against the ref, so files whose content did not change (pure renames, mode changes) are no longer selected, and a failure to list untracked files now fails the run instead of being ignored.
+- Self-applied verification is split by time budget into `devenv shell verify` (build with cognitive complexity S3776 at threshold 15 as an error, and unit tests), `verify-push` (end-to-end checks and the changed-line gate on the engine) and `verify-full` (whole-engine mutation whose new failures and undetected mutants are appended to a backlog). The score-floor gate and `--exclude-static` are no longer used.
+
+### Fixed
+
+- `--since` now selects untracked files of a project that lives below the repository root; their paths were resolved against the wrong directory.
+- `--since` and `changed-lines` read the repository that contains the project or the report even inside a git hook, which exports `GIT_DIR` and related variables for the calling repository; they used to read that repository and treat the working directory as its work tree.
+
 ## [0.2.0] - 2026-09-21
 
 ### Added

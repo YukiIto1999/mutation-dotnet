@@ -5,9 +5,10 @@ using TypeModeling.Domain;
 
 namespace Mutation.Composition;
 
-/// <summary>外の設定を検査の workflow の語彙へ写して呼ぶだけの、外部へ公開する変異検査の operation</summary>
+/// <summary>外の設定を検査の workflow と use-case の語彙へ写して呼ぶだけの、外部へ公開する変異検査の operation</summary>
 /// <param name="workflow">一連の変異検査の workflow</param>
-public sealed class MutationTesting(RunMutationTesting workflow)
+/// <param name="judgeChangedLines">変わった行に重なる変異の取り出しの use-case</param>
+public sealed class MutationTesting(RunMutationTesting workflow, JudgeChangedLines judgeChangedLines)
 {
     /// <summary>一回の変異検査の遂行</summary>
     /// <param name="options">外から受け取った設定</param>
@@ -35,4 +36,11 @@ public sealed class MutationTesting(RunMutationTesting workflow)
             ),
             progress
         );
+
+    /// <summary>書き出し済みの報告からの、変わった行に重なる変異の確定結果の取り出し</summary>
+    /// <param name="reportPath">mutation-report.json の path</param>
+    /// <param name="sinceRef">差分の基点になる git の参照。`run` の `--since` と同じ意味</param>
+    /// <returns>成功なら変わった行に重なる変異の確定結果、報告か差分を得られなければ理由</returns>
+    public Result<ChangedLineVerdicts, PipelineFailure> OnChangedLines(string reportPath, string sinceRef) =>
+        judgeChangedLines.Execute(reportPath, sinceRef);
 }

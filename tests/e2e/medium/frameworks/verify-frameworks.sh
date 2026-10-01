@@ -6,6 +6,7 @@ fixture_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$fixture_dir/../../../.." && pwd)"
 output_root="${1:-$fixture_dir/.mutation-output}"
 cli="$repo_root/src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll"
+mkdir -p "$output_root"
 
 declare -A counts
 fail=0

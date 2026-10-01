@@ -1,8 +1,17 @@
+using System.Diagnostics.CodeAnalysis;
 using System.IO.Pipes;
 using System.Text;
 using System.Text.Json;
 using Mutation.Worker;
 using Mutation.Protocol;
+
+[assembly: SuppressMessage(
+    "Critical Code Smell",
+    "S3776:Cognitive Complexity of methods should not be too high",
+    Scope = "member",
+    Target = "~M:Program.<Main>$(System.String[])",
+    Justification = "S3776 の導入前からある複雑度 16 の既存違反。基線台帳 S3776-001 に記録し、15 以下へ分割した時点で抑止を外す"
+)]
 
 var serializer = new JsonSerializerOptions(JsonSerializerDefaults.Web);
 var requestHandle = ArgumentAfter("--request-handle");

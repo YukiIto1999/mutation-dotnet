@@ -29,5 +29,14 @@
         </Parameter>
       </Parameters>
     </Rule>
+    <Rule>
+      <Key>S3776</Key>
+      <Parameters>
+        <Parameter>
+          <Key>threshold</Key>
+          <Value>15</Value>
+        </Parameter>
+      </Parameters>
+    </Rule>
   </Rules>
 </AnalysisInput>

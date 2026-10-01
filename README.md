@@ -53,7 +53,7 @@ A target that fails does not stop the others. Abandoned targets appear in the su
 | `--concurrency N` | Number of workers. Defaults to half the logical cores |
 | `--configuration NAME` | Build configuration. Defaults to Debug |
 | `--mutate GLOBS` | Globs of files to mutate, relative to the project directory. `!` excludes, `,` separates |
-| `--since REF` | Mutate only files changed since the given git ref |
+| `--since REF` | Mutate only files whose content changed since the given git ref (working tree against `REF`, plus untracked files) |
 | `--break-at SCORE` | Exit with code 2 when the mutation score is below this value |
 | `--ignore-operators NAMES` | Exclude mutation operators (for example `LiteralMutator`). `,` separates |
 | `--ignore-methods NAMES` | Do not mutate inside calls to these methods (for example `ConfigureAwait`). `,` separates |
@@ -68,14 +68,49 @@ The run writes a console summary and two files under `<output>/reports/`:
 - `mutation-report.json` — the mutation-testing report schema, viewable with mutation-testing-elements
 - `timings.json` — per-phase and per-mutant timings for bottleneck analysis
 
+## Changed-line gate
+
+`run --since REF` narrows mutation to whole files. `changed-lines` then reads the report of that run and judges only the mutants whose line range overlaps a line changed since the same `REF`. Changed lines are the new side of the working tree against `REF`, and every line of an untracked file. A mutant counts as undetected when its status is `Survived` or `NoCoverage`; mutants outside the changed lines never affect the result.
+
+For a pre-push check, pass the point where the pushed range starts, for example the merge base with the upstream branch:
+
+```bash
+base=$(git merge-base HEAD '@{upstream}' 2>/dev/null || git merge-base HEAD origin/develop)
+dotnet src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll run \
+  --project path/to/Target.csproj \
+  --test-project path/to/Target.Tests.csproj \
+  --since "$base" --output .mutation-output/push
+dotnet src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll changed-lines \
+  --report .mutation-output/push/reports/mutation-report.json --since "$base"
+```
+
+| Exit code | Meaning |
+|---|---|
+| 0 | No mutant on a changed line is undetected, including when no mutant lies on a changed line |
+| 1 | The report cannot be read, or the diff against `REF` cannot be resolved |
+| 2 | At least one mutant on a changed line is undetected. Each is printed as `path:line:column status mutator: replacement` |
+
 ## Development
 
-`devenv shell verify` runs the build, all tests, the end-to-end checks, and a self-applied mutation gate: mutation-dotnet mutates its own engine and fails the verification when the score drops below the recorded floor. Branch, commit, and release conventions are described in [CONTRIBUTING.md](CONTRIBUTING.md), and released changes in [CHANGELOG.md](CHANGELOG.md).
+Verification runs through three devenv entries, split by time budget:
+
+- `devenv shell verify` (within 2 minutes, before every commit) builds the solution with every analyzer warning as an error, including cognitive complexity (SonarAnalyzer S3776, threshold 15), and runs the unit tests.
+- `devenv shell verify-push` (within 15 minutes, before every push) runs `verify`, the end-to-end checks on the fixtures (verdict categories, the three test frameworks, the changed-line gate), and the changed-line gate on mutation-dotnet's own engine against the push base. One surviving or uncovered mutant on a changed line fails it.
+- `devenv shell verify-full` (no budget, not a gate, before every release) runs the end-to-end checks and mutation testing over the whole engine, and appends failures and undetected mutants that the previous full run did not report to the backlog.
+
+Branch, commit, and release conventions are described in [CONTRIBUTING.md](CONTRIBUTING.md), and released changes in [CHANGELOG.md](CHANGELOG.md).
 
 ## Limitations
 
 - Linux is the measured platform. The code has no platform-specific assumptions, but Windows and macOS are not yet verified.
 - Mutants that only execute during static initialization are attributed by runtime tracking; with `--exclude-static` they are reported as Ignored.
+
+## Architecture standard
+
+The architecture standard is at `/home/nixos/environment/architecture-standard`.
+Conformance is always judged against the current text of the standard.
+Application follows the four rules of application and the usage procedures in the standard's README.
+Decision records are kept in `docs/decisions/`, outside version control.
 
 ## License
 

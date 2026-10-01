@@ -31,7 +31,8 @@ public static class BuildCore
                 workerRuns,
                 snapshots,
                 new VerificationReports()
-            )
+            ),
+            new JudgeChangedLines(new RecordedReports(), new ChangedLinesFromGit())
         );
     }
 }

@@ -34,4 +34,9 @@ public abstract record PipelineFailure
     /// <summary>対象のテストが一件も見つからなかった</summary>
     /// <param name="TestAssembly">探したテスト assembly の path</param>
     public sealed record NoTestsFound(string TestAssembly) : PipelineFailure;
+
+    /// <summary>変異検査の報告を読めなかった</summary>
+    /// <param name="ReportPath">読もうとした報告の path</param>
+    /// <param name="Reason">読めなかった理由</param>
+    public sealed record ReportUnreadable(string ReportPath, string Reason) : PipelineFailure;
 }

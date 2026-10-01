@@ -25,6 +25,5 @@ public sealed record TargetResult(
         Verdicts.Values.Count(v => v is MutantVerdict.Killed or MutantVerdict.TimedOut);
 
     /// <summary>検出されなかった変異の数。生存と被覆なしの合計</summary>
-    public int UndetectedCount =>
-        Verdicts.Values.Count(v => v is MutantVerdict.Survived or MutantVerdict.NoCoverage);
+    public int UndetectedCount => Verdicts.Values.Count(v => v.IsUndetected);
 }

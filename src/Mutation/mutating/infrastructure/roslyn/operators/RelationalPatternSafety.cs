@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -7,6 +8,11 @@ namespace Mutation.Mutating.Infrastructure.Roslyn.Operators;
 internal static class RelationalPatternSafety
 {
     /// <summary>指定した関係 pattern の交換後も switch が成立するかの判定</summary>
+    [SuppressMessage(
+        "Critical Code Smell",
+        "S3776:Cognitive Complexity of methods should not be too high",
+        Justification = "S3776 の導入前からある複雑度 17 の既存違反。基線台帳 S3776-002 に記録し、15 以下へ分割した時点で抑止を外す"
+    )]
     internal static bool IsSafeReplacement(
         SyntaxNode context,
         int patternIndex,
