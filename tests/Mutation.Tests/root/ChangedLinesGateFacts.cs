@@ -55,7 +55,7 @@ public sealed class ChangedLinesGateFacts
             .IsEquivalentTo([repo.PathOf("src/A.cs"), repo.PathOf("src/sub/New.cs")]);
     }
 
-    /// <summary>解けない基点が、変わった行の無い合格でなく差分の失敗になること</summary>
+    /// <summary>解けない基点が、変わった行の無い合格でなく、git の失敗を伝える差分の失敗になること</summary>
     [Test]
     public async Task Unknown_base_ref_fails_instead_of_passing()
     {
@@ -66,8 +66,12 @@ public sealed class ChangedLinesGateFacts
 
         var outcome = BuildCore.Create().OnChangedLines(report, "no-such-ref");
 
-        await Assert.That(outcome is Result<ChangedLineVerdicts, PipelineFailure>.Failed(PipelineFailure.SinceUnavailable))
-            .IsTrue();
+        var reason = outcome is Result<ChangedLineVerdicts, PipelineFailure>.Failed(
+            PipelineFailure.SinceUnavailable { Reason: var text }
+        )
+            ? text
+            : null;
+        await Assert.That(reason).Contains("no-such-ref");
     }
 
     /// <summary>無い報告が、読めない報告の失敗になること</summary>
