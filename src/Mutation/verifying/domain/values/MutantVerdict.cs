@@ -11,18 +11,29 @@ public abstract record MutantVerdict
     {
     }
 
+    /// <summary>テストが検出しなかった結果か。生存と被覆なしだけが真</summary>
+    public virtual bool IsUndetected => false;
+
     /// <summary>テストの失敗により検出された結果</summary>
     /// <param name="KillerTest">最初に失敗したテストの表示名</param>
     public sealed record Killed(string KillerTest) : MutantVerdict;
 
     /// <summary>被覆する全テストが成功し検出されなかった結果</summary>
-    public sealed record Survived : MutantVerdict;
+    public sealed record Survived : MutantVerdict
+    {
+        /// <inheritdoc />
+        public override bool IsUndetected => true;
+    }
 
     /// <summary>実行時間予算の超過により検出扱いとなった結果</summary>
     public sealed record TimedOut : MutantVerdict;
 
     /// <summary>どのテストにも被覆されず実行されなかった結果</summary>
-    public sealed record NoCoverage : MutantVerdict;
+    public sealed record NoCoverage : MutantVerdict
+    {
+        /// <inheritdoc />
+        public override bool IsUndetected => true;
+    }
 
     /// <summary>schemata を含む再コンパイルが失敗し無効化された結果</summary>
     public sealed record CompileError : MutantVerdict;
