@@ -68,6 +68,28 @@ The run writes a console summary and two files under `<output>/reports/`:
 - `mutation-report.json` — the mutation-testing report schema, viewable with mutation-testing-elements
 - `timings.json` — per-phase and per-mutant timings for bottleneck analysis
 
+## Changed-line gate
+
+`run --since REF` narrows mutation to whole files. `changed-lines` then reads the report of that run and judges only the mutants whose line range overlaps a line changed since the same `REF`. Changed lines are the new side of the working tree against `REF`, and every line of an untracked file. A mutant counts as undetected when its status is `Survived` or `NoCoverage`; mutants outside the changed lines never affect the result.
+
+For a pre-push check, pass the point where the pushed range starts, for example the merge base with the upstream branch:
+
+```bash
+base=$(git merge-base HEAD '@{upstream}' 2>/dev/null || git merge-base HEAD origin/develop)
+dotnet src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll run \
+  --project path/to/Target.csproj \
+  --test-project path/to/Target.Tests.csproj \
+  --since "$base" --output .mutation-output/push
+dotnet src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll changed-lines \
+  --report .mutation-output/push/reports/mutation-report.json --since "$base"
+```
+
+| Exit code | Meaning |
+|---|---|
+| 0 | No mutant on a changed line is undetected, including when no mutant lies on a changed line |
+| 1 | The report cannot be read, or the diff against `REF` cannot be resolved |
+| 2 | At least one mutant on a changed line is undetected. Each is printed as `path:line:column status mutator: replacement` |
+
 ## Development
 
 `devenv shell verify` runs the build, all tests, the end-to-end checks, and a self-applied mutation gate: mutation-dotnet mutates its own engine and fails the verification when the score drops below the recorded floor. Branch, commit, and release conventions are described in [CONTRIBUTING.md](CONTRIBUTING.md), and released changes in [CHANGELOG.md](CHANGELOG.md).

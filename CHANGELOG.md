@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `changed-lines` command: reads the `mutation-report.json` of a `run --since REF`, selects the mutants whose line range overlaps a line changed since `REF`, prints the undetected ones (Survived or NoCoverage), and exits with 0 when there are none, 2 when there are, and 1 when the report or the diff cannot be read.
+
 ### Changed
 
 - `--since` reads the changed files from one `git diff -U0` of the working tree against the ref, so files whose content did not change (pure renames, mode changes) are no longer selected, and a failure to list untracked files now fails the run instead of being ignored.

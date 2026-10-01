@@ -68,6 +68,28 @@ console 要約に加え、`<output>/reports/` へ 2 ファイルを書き出す�
 - `mutation-report.json` は mutation-testing report schema。mutation-testing-elements で表示できる
 - `timings.json` はフェーズ別・mutant 別の実測時間。ボトルネック分析に使う
 
+## 変更行の判定
+
+`run --since REF` はファイル単位で変異対象を絞る。`changed-lines` はその実行の報告を読み、同じ `REF` から変わった行と範囲が一行でも重なる mutant だけを判定する。変わった行は、作業木と `REF` の差分の新しい側の行と、未追跡ファイルの全行。status が `Survived` か `NoCoverage` の mutant を未検出と数え、変わった行の外の mutant は結果に入れない。
+
+push 前の検査の例。基点は push する範囲の始点で、ここでは upstream との分岐点。
+
+```bash
+base=$(git merge-base HEAD '@{upstream}' 2>/dev/null || git merge-base HEAD origin/develop)
+dotnet src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll run \
+  --project path/to/Target.csproj \
+  --test-project path/to/Target.Tests.csproj \
+  --since "$base" --output .mutation-output/push
+dotnet src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll changed-lines \
+  --report .mutation-output/push/reports/mutation-report.json --since "$base"
+```
+
+| 終了コード | 意味 |
+|---|---|
+| 0 | 変わった行の mutant に未検出なし。変わった行に mutant が一件もない場合を含む |
+| 1 | 報告を読めない、または `REF` との差分を解決できない |
+| 2 | 変わった行の mutant に未検出が一件以上。各件を `path:line:column status mutator: replacement` で出力 |
+
 ## 開発
 
 `devenv shell verify` が build、全テスト、E2E 検証、自己適用の mutation ゲートを一括実行する。ゲートは自身のエンジンを変異させ、score が基準未満なら失敗する。ブランチ・コミット・リリースの規約は [CONTRIBUTING.md](CONTRIBUTING.md)、版の記録は [CHANGELOG.md](CHANGELOG.md)。

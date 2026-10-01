@@ -20,5 +20,7 @@ public static class FailureLines
             PipelineFailure.WorkerFailed workerFailed => $"テスト worker が失敗した: {workerFailed.Reason}",
             PipelineFailure.SinceUnavailable since => $"--since の差分を解決できない: {since.Reason}",
             PipelineFailure.NoTestsFound noTests => $"{noTests.TestAssembly} からテストが見つからない",
+            PipelineFailure.ReportUnreadable unreadable =>
+                $"{unreadable.ReportPath} を変異検査の報告として読めない: {unreadable.Reason}",
         };
 }
