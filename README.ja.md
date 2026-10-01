@@ -53,7 +53,7 @@ dotnet src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll run \
 | `--concurrency N` | worker 数。既定は論理コア数の半分 |
 | `--configuration NAME` | build 構成。既定 Debug |
 | `--mutate GLOBS` | 変異対象の glob。project directory 相対、`!` で除外、`,` 区切り |
-| `--since REF` | git の基点からの変更ファイルだけを対象にする |
+| `--since REF` | git の基点から内容が変わったファイルだけを対象にする(作業木と `REF` の差分と、未追跡ファイル) |
 | `--break-at SCORE` | mutation score がこの値未満なら終了コード 2 |
 | `--ignore-operators NAMES` | 除外する変異演算子の名前。例 `LiteralMutator`。`,` 区切り |
 | `--ignore-methods NAMES` | この呼び出しの中を変異させない method 名。例 `ConfigureAwait`。`,` 区切り |

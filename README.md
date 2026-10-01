@@ -53,7 +53,7 @@ A target that fails does not stop the others. Abandoned targets appear in the su
 | `--concurrency N` | Number of workers. Defaults to half the logical cores |
 | `--configuration NAME` | Build configuration. Defaults to Debug |
 | `--mutate GLOBS` | Globs of files to mutate, relative to the project directory. `!` excludes, `,` separates |
-| `--since REF` | Mutate only files changed since the given git ref |
+| `--since REF` | Mutate only files whose content changed since the given git ref (working tree against `REF`, plus untracked files) |
 | `--break-at SCORE` | Exit with code 2 when the mutation score is below this value |
 | `--ignore-operators NAMES` | Exclude mutation operators (for example `LiteralMutator`). `,` separates |
 | `--ignore-methods NAMES` | Do not mutate inside calls to these methods (for example `ConfigureAwait`). `,` separates |

@@ -5,44 +5,59 @@ using TypeModeling.Domain;
 
 namespace Mutation.Mutating.Infrastructure.Git;
 
-/// <summary>差分運用で対象を絞るための変更ファイルの解決</summary>
+/// <summary>差分運用で対象を絞るための、基点から変わったファイルと行の解決</summary>
 public static class ChangedFiles
 {
-    /// <summary>基点からの差分と未追跡ファイルの、絶対 path 集合としての取得</summary>
-    /// <param name="projectDirectory">対象 project の directory。git repo の中にあること</param>
+    /// <summary>基点と作業木の差分と未追跡ファイルの、変わったファイルと行としての取得</summary>
+    /// <remarks>未追跡ファイルは全行が変わったものとする。git のどの command が失敗しても失敗を返す</remarks>
+    /// <param name="projectDirectory">git repo の中にある directory</param>
     /// <param name="sinceRef">差分の基点になる git の参照</param>
-    /// <returns>成功なら変更ファイルの絶対 path 集合、失敗なら理由</returns>
-    public static Result<IReadOnlySet<string>, PipelineFailure> Resolve(string projectDirectory, string sinceRef)
+    /// <returns>成功なら変わったファイルと行、失敗なら理由</returns>
+    public static Result<ChangedLines, PipelineFailure> Resolve(string projectDirectory, string sinceRef)
     {
         var toplevel = Run(projectDirectory, ["rev-parse", "--show-toplevel"]);
-        if (toplevel is Result<IReadOnlyList<string>, PipelineFailure>.Failed(var rootFailure))
+        if (toplevel is Result<string, PipelineFailure>.Failed(var rootFailure))
         {
-            return new Result<IReadOnlySet<string>, PipelineFailure>.Failed(rootFailure);
+            return new Result<ChangedLines, PipelineFailure>.Failed(rootFailure);
         }
 
-        var root = ((Result<IReadOnlyList<string>, PipelineFailure>.Succeeded)toplevel).Value[0];
-        var diff = Run(projectDirectory, ["diff", "--name-only", sinceRef, "--"]);
-        if (diff is Result<IReadOnlyList<string>, PipelineFailure>.Failed(var diffFailure))
-        {
-            return new Result<IReadOnlySet<string>, PipelineFailure>.Failed(diffFailure);
-        }
-
-        var untracked = Run(projectDirectory, ["ls-files", "--others", "--exclude-standard"]);
-        var lines = ((Result<IReadOnlyList<string>, PipelineFailure>.Succeeded)diff).Value.Concat(
-            untracked is Result<IReadOnlyList<string>, PipelineFailure>.Succeeded extra ? extra.Value : []
+        var root = ((Result<string, PipelineFailure>.Succeeded)toplevel).Value.Trim();
+        var diff = Run(
+            projectDirectory,
+            [
+                "-c", "core.quotePath=false",
+                "diff", "-U0", "--no-color", "--no-ext-diff", "--no-textconv", "--no-relative",
+                "--src-prefix=a/", "--dst-prefix=b/", sinceRef, "--",
+            ]
         );
-        var files = lines
-            .Where(line => line.Length > 0)
-            .Select(line => Path.GetFullPath(Path.Combine(root, line)))
-            .ToHashSet(StringComparer.Ordinal);
-        return new Result<IReadOnlySet<string>, PipelineFailure>.Succeeded(files);
+        if (diff is Result<string, PipelineFailure>.Failed(var diffFailure))
+        {
+            return new Result<ChangedLines, PipelineFailure>.Failed(diffFailure);
+        }
+
+        var untracked = Run(projectDirectory, ["ls-files", "-z", "--others", "--exclude-standard", "--full-name"]);
+        if (untracked is Result<string, PipelineFailure>.Failed(var untrackedFailure))
+        {
+            return new Result<ChangedLines, PipelineFailure>.Failed(untrackedFailure);
+        }
+
+        var diffLines = ((Result<string, PipelineFailure>.Succeeded)diff).Value.Split('\n');
+        var untrackedFiles = ((Result<string, PipelineFailure>.Succeeded)untracked)
+            .Value.Split('\0', StringSplitOptions.RemoveEmptyEntries);
+        var ranges = new Dictionary<string, IReadOnlyList<LineRange>>(
+            UnifiedDiff.Parse(root, diffLines),
+            StringComparer.Ordinal
+        );
+        foreach (var file in untrackedFiles)
+        {
+            ranges[Path.GetFullPath(Path.Combine(root, file))] = [LineRange.WholeFile];
+        }
+
+        return new Result<ChangedLines, PipelineFailure>.Succeeded(new ChangedLines(ranges));
     }
 
-    /// <summary>git の一 command の実行と標準出力の行の取得</summary>
-    private static Result<IReadOnlyList<string>, PipelineFailure> Run(
-        string workingDirectory,
-        IReadOnlyList<string> arguments
-    )
+    /// <summary>git の一 command の実行と標準出力の取得</summary>
+    private static Result<string, PipelineFailure> Run(string workingDirectory, IReadOnlyList<string> arguments)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -59,27 +74,23 @@ public static class ChangedFiles
         using var process = Process.Start(startInfo);
         if (process is null)
         {
-            return new Result<IReadOnlyList<string>, PipelineFailure>.Failed(
-                new PipelineFailure.SinceUnavailable("git を起動できない")
-            );
+            return new Result<string, PipelineFailure>.Failed(new PipelineFailure.SinceUnavailable("git を起動できない"));
         }
 
         var stderr = new System.Text.StringBuilder();
         process.ErrorDataReceived += (_, e) => stderr.AppendLine(e.Data);
         process.BeginErrorReadLine();
-        var lines = process
-            .StandardOutput.ReadToEnd()
-            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var output = process.StandardOutput.ReadToEnd();
         process.WaitForExit();
         if (process.ExitCode != 0)
         {
-            return new Result<IReadOnlyList<string>, PipelineFailure>.Failed(
+            return new Result<string, PipelineFailure>.Failed(
                 new PipelineFailure.SinceUnavailable(
                     $"git {string.Join(' ', arguments)} が失敗した: {stderr.ToString().Trim()}"
                 )
             );
         }
 
-        return new Result<IReadOnlyList<string>, PipelineFailure>.Succeeded(lines);
+        return new Result<string, PipelineFailure>.Succeeded(output);
     }
 }
