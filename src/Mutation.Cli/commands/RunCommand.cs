@@ -20,6 +20,7 @@ public static class RunCommand
     /// <param name="validateSurvivors">生存した変異の新規 process での再検証</param>
     /// <param name="mutate">-m, 変異対象に含めるファイルの glob。project directory 相対。先頭 `!` は除外。複数は `,` 区切り</param>
     /// <param name="since">差分運用の基点になる git の参照。変更ファイルだけが対象</param>
+    /// <param name="changedLines">--since の変更行に重なる変異だけを生成するか</param>
     /// <param name="breakAt">この値を下回る mutation score で終了コード 2 にする。0〜100</param>
     /// <param name="ignoreOperators">除外する変異演算子の名前。複数は `,` 区切り</param>
     /// <param name="ignoreMethods">その呼び出しの中を変異させない method 名。複数は `,` 区切り</param>
@@ -35,6 +36,7 @@ public static class RunCommand
         bool validateSurvivors = false,
         string[]? mutate = null,
         string? since = null,
+        bool changedLines = false,
         double breakAt = -1,
         string[]? ignoreOperators = null,
         string[]? ignoreMethods = null,
@@ -59,6 +61,7 @@ public static class RunCommand
             excludeStatic,
             mutate ?? [],
             since,
+            changedLines,
             ignoreOperators ?? [],
             ignoreMethods ?? [],
             Path.GetFullPath(output),

@@ -36,7 +36,7 @@
     dotnet "$cli" run \
       --project src/Mutation/Mutation.csproj \
       --test-project tests/Mutation.Tests/Mutation.Tests.csproj \
-      --output .mutation-output/push --since "$base"
+      --output .mutation-output/push --since "$base" --changed-lines
     dotnet "$cli" changed-lines --report .mutation-output/push/reports/mutation-report.json --since "$base"
   '';
 

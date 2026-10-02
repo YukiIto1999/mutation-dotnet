@@ -9,7 +9,7 @@ using TypeModeling.Domain;
 namespace Mutation.Tests;
 
 /// <summary>一時 git repository の作業木と報告からの、変わった行の判定の組み立て済み経路の検査</summary>
-public sealed class ChangedLinesGateFacts
+public sealed partial class ChangedLinesGateFacts
 {
     /// <summary>書き換えた行と未追跡ファイルの変異だけが選ばれ、そのうち生存と未被覆が未検出になること</summary>
     [Test]
@@ -49,10 +49,33 @@ public sealed class ChangedLinesGateFacts
 
         var resolved = new ChangeSets().Resolve(Path.Combine(repo.Root, "src", "sub"), baseRef);
 
-        await Assert.That(resolved is Result<IReadOnlySet<string>, PipelineFailure>.Succeeded).IsTrue();
-        var files = ((Result<IReadOnlySet<string>, PipelineFailure>.Succeeded)resolved).Value;
+        await Assert.That(resolved is Result<ChangedLines, PipelineFailure>.Succeeded).IsTrue();
+        var files = ((Result<ChangedLines, PipelineFailure>.Succeeded)resolved).Value.Files;
         await Assert.That(files.Order(StringComparer.Ordinal).ToArray())
             .IsEquivalentTo([repo.PathOf("src/A.cs"), repo.PathOf("src/sub/New.cs")]);
+    }
+
+    /// <summary>先行する挿入と削除で行番号がずれても新しい側の変更行を選ぶこと</summary>
+    [Test]
+    public async Task Shifted_hunks_select_new_side_lines_not_old_coordinates()
+    {
+        using var repo = await TempRepository.CreateAsync();
+        await repo.WriteAsync("src/A.cs", "first\nremoved\nthird\nfourth\nfifth\n");
+        var baseRef = await repo.CommitAllAsync();
+        await repo.WriteAsync("src/A.cs", "inserted\nfirst\nthird\nfourth\nchanged\nfifth\n");
+        var report = await repo.WriteReportAsync(
+            ("src/A.cs", "inserted", 1, "Survived"),
+            ("src/A.cs", "old-coordinate", 4, "Survived"),
+            ("src/A.cs", "changed", 5, "NoCoverage"),
+            ("src/A.cs", "unchanged", 6, "Survived")
+        );
+
+        var outcome = BuildCore.Create().OnChangedLines(report, baseRef);
+
+        await Assert.That(outcome is Result<ChangedLineVerdicts, PipelineFailure>.Succeeded).IsTrue();
+        var verdicts = ((Result<ChangedLineVerdicts, PipelineFailure>.Succeeded)outcome).Value;
+        await Assert.That(verdicts.Undetected.Select(mutant => mutant.Id).ToArray())
+            .IsEquivalentTo(["inserted", "changed"]);
     }
 
     /// <summary>解けない基点が、変わった行の無い合格でなく、git の失敗を伝える差分の失敗になること</summary>
@@ -72,6 +95,21 @@ public sealed class ChangedLinesGateFacts
             ? text
             : null;
         await Assert.That(reason).Contains("no-such-ref");
+    }
+
+    /// <summary>git の option に見える基点を commit とみなさず失敗にすること</summary>
+    [Test]
+    public async Task Git_option_is_not_accepted_as_a_base_ref()
+    {
+        using var repo = await TempRepository.CreateAsync();
+        await repo.WriteAsync("src/A.cs", "one\n");
+        await repo.CommitAllAsync();
+        var report = await repo.WriteReportAsync(("src/A.cs", "A:1", 1, "Survived"));
+
+        var outcome = BuildCore.Create().OnChangedLines(report, "--cached");
+
+        await Assert.That(outcome is Result<ChangedLineVerdicts, PipelineFailure>.Failed(
+            PipelineFailure.SinceUnavailable)).IsTrue();
     }
 
     /// <summary>無い報告が、読めない報告の失敗になること</summary>

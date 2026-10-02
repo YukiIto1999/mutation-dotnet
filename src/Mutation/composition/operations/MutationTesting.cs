@@ -26,6 +26,7 @@ public sealed class MutationTesting(RunMutationTesting workflow, JudgeChangedLin
                 new SelectionRequest(
                     options.MutatePatterns,
                     options.SinceRef,
+                    options.ChangedLinesOnly,
                     options.IgnoredOperators,
                     options.IgnoredMethods
                 ),
