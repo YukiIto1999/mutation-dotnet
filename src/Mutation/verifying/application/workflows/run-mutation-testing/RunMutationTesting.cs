@@ -31,7 +31,7 @@ public sealed class RunMutationTesting(
     )
     {
         var clock = new PhaseClock();
-        var layout = new RunLayout(request.OutputDirectory);
+        var layout = new RunLayout(request.OutputDirectory, request.Selection);
         var located = await mutantSource
             .PrepareAsync(
                 request.Targets,

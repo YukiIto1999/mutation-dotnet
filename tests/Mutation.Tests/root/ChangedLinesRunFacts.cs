@@ -62,6 +62,27 @@ public sealed partial class ChangedLinesGateFacts
         await Assert.That(deleted.Failures.Single().Failure is PipelineFailure.SinceUnavailable).IsTrue();
     }
 
+    /// <summary>同じ出力先での差分運用の実行が全量の実行の保存を上書きせず、次の全量の実行が前回の結果を再利用すること</summary>
+    [Test]
+    public async Task Since_runs_keep_the_whole_run_snapshot_reusable()
+    {
+        using var repo = await TempRepository.CreateAsync();
+        var baseRef = await CommitFixtureAsync(repo);
+        var whole = new MutationRunOptions(
+            [FixtureTarget(repo)], "Debug", 2, false, false, [], null, false, [], [],
+            repo.PathOf("out/shared"), true
+        );
+        var first = await RunAsync(whole);
+        await RunAsync(whole with { SinceRef = baseRef });
+        await RunAsync(whole with { SinceRef = baseRef, ChangedLinesOnly = true });
+
+        var progress = new List<RunProgress>();
+        var last = await RunAsync(whole, progress.Add);
+
+        await Assert.That(progress.OfType<RunProgress.SnapshotMatched>().Count()).IsEqualTo(1);
+        await Assert.That(last.Completed.Single().Mutants.Count).IsEqualTo(first.Completed.Single().Mutants.Count);
+    }
+
     /// <summary>検証フィクスチャを書いて commit し、生存する 11 行目だけを作業木で書き換えた、その commit の id</summary>
     private static async Task<string> CommitFixtureAsync(TempRepository repo)
     {
@@ -96,9 +117,9 @@ public sealed partial class ChangedLinesGateFacts
         );
 
     /// <summary>組み立て済みの経路での一回の実行と、成功したときの確定結果</summary>
-    private static async Task<MutationRunResult> RunAsync(MutationRunOptions options)
+    private static async Task<MutationRunResult> RunAsync(MutationRunOptions options, Action<RunProgress>? progress = null)
     {
-        var run = await BuildCore.Create().RunAsync(options, _ => { });
+        var run = await BuildCore.Create().RunAsync(options, progress ?? (_ => { }));
         await Assert.That(run is Result<MutationRunResult, PipelineFailure>.Succeeded).IsTrue();
         return ((Result<MutationRunResult, PipelineFailure>.Succeeded)run).Value;
     }

@@ -60,7 +60,7 @@ A target that fails does not stop the others. Abandoned targets appear in the su
 | `--ignore-methods NAMES` | Do not mutate inside calls to these methods (for example `ConfigureAwait`). `,` separates |
 | `--validate-survivors` | Re-verify surviving mutants in a fresh process |
 | `--exclude-static` | Ignore mutants that only run during static initialization |
-| `--with-baseline` | Inherit verdicts of unchanged mutants from the previous run |
+| `--with-baseline` | Inherit verdicts of unchanged mutants from the previous run in the same output directory of the same kind: a whole run inherits from a whole run, and a `--since` run from a `--since` run |
 
 ## Reports
 

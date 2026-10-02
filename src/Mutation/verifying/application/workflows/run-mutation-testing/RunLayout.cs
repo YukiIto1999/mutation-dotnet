@@ -4,7 +4,8 @@ namespace Mutation.Verifying.Application;
 
 /// <summary>出力 directory 配下の置き場の取り決め</summary>
 /// <param name="OutputDirectory">報告と中間物を置く root</param>
-public sealed record RunLayout(string OutputDirectory)
+/// <param name="Selection">対象ごとの中間物の置き場を、差分運用の実行と全量の実行で分けるための、変異対象の選別の指定</param>
+public sealed record RunLayout(string OutputDirectory, SelectionRequest Selection)
 {
     /// <summary>対象間で共有する build の中間物の置き場</summary>
     public string WorkDirectory => Path.Combine(OutputDirectory, "work");
@@ -15,11 +16,15 @@ public sealed record RunLayout(string OutputDirectory)
     /// <summary>対象一件の置き場の取り出し</summary>
     /// <param name="targetName">対象 project の名前</param>
     /// <returns>対象ごとに分かれた置き場の取り決め</returns>
-    public TargetLayout For(string targetName) => new(OutputDirectory, targetName);
+    public TargetLayout For(string targetName) => new(TargetRoot, targetName);
+
+    /// <summary>対象ごとの中間物の root。差分運用の実行が全量の実行の保存と変異 assembly を上書きしないよう、別の root</summary>
+    private string TargetRoot =>
+        string.IsNullOrEmpty(Selection.SinceRef) ? OutputDirectory : Path.Combine(OutputDirectory, "since");
 }
 
 /// <summary>対象一件の置き場の取り決め</summary>
-/// <param name="OutputDirectory">報告と中間物を置く root</param>
+/// <param name="OutputDirectory">対象ごとの中間物を置く root</param>
 /// <param name="TargetName">対象 project の名前</param>
 public sealed record TargetLayout(string OutputDirectory, string TargetName)
 {
