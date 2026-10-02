@@ -46,16 +46,6 @@ public static class CandidateCollector
         var filePath = root.SyntaxTree.FilePath;
         foreach (var node in root.DescendantNodesAndSelf())
         {
-            if (filterLines)
-            {
-                var nodeSpan = node.GetLocation().GetLineSpan();
-                if (!policy.IncludesSpan(
-                    filePath, nodeSpan.StartLinePosition.Line + 1, nodeSpan.EndLinePosition.Line + 1))
-                {
-                    continue;
-                }
-            }
-
             foreach (var mutationOperator in allowed)
             {
                 candidates.AddRange(

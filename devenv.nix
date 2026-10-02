@@ -36,7 +36,7 @@
     dotnet "$cli" run \
       --project src/Mutation/Mutation.csproj \
       --test-project tests/Mutation.Tests/Mutation.Tests.csproj \
-      --output .mutation-output/push --since "$base" --changed-lines
+      --concurrency 2 --output .mutation-output/push --since "$base" --changed-lines
     dotnet "$cli" changed-lines --report .mutation-output/push/reports/mutation-report.json --since "$base"
   '';
 
@@ -66,7 +66,7 @@
     dotnet "$cli" run \
       --project src/Mutation/Mutation.csproj \
       --test-project tests/Mutation.Tests/Mutation.Tests.csproj \
-      --output "$out" || failed "全量の mutation"
+      --concurrency 2 --output "$out" || failed "全量の mutation"
     mutants=$(jq '.counters.mutants' "$out/reports/timings.json") || failed "全量の mutation の報告の読み取り"
     [ "$mutants" -gt 0 ] || failed "全量の mutation(変異の生成が 0 件。対象の指定を確かめる)"
     rm -f "$out/failed-stage"
