@@ -16,12 +16,13 @@ internal sealed class MutantSourceFromMutating(
     IFingerprints fingerprints
 ) : IMutantSource
 {
-    /// <summary>PrepareAsync が特定し Generate が使う、対象 project の path から csc 呼び出しへの対応</summary>
-    private readonly Dictionary<string, CscInvocation> prepared = new(StringComparer.Ordinal);
+    /// <summary>PrepareAsync が決め Generate が使う、対象 project の path から生成入力への対応</summary>
+    private readonly Dictionary<string, GenerationInput> prepared = new(StringComparer.Ordinal);
 
     /// <inheritdoc />
     public async Task<Result<IReadOnlyList<Result<PreparedTarget, PipelineFailure>>, PipelineFailure>> PrepareAsync(
         IReadOnlyList<TargetRequest> targets,
+        SelectionRequest selection,
         string workDirectory,
         string? fingerprintSettings
     )
@@ -41,19 +42,27 @@ internal sealed class MutantSourceFromMutating(
         var projectResults = (
             (Result<IReadOnlyList<Result<PreparedProject, PipelineFailure>>, PipelineFailure>.Succeeded)located
         ).Value;
+        var mutationSelection = new MutationSelection(
+            selection.MutatePatterns,
+            selection.SinceRef,
+            selection.ChangedLinesOnly,
+            selection.IgnoredOperators,
+            selection.IgnoredMethods
+        );
         var results = new List<Result<PreparedTarget, PipelineFailure>>(targets.Count);
         foreach (var (target, project) in targets.Zip(projectResults))
         {
-            results.Add(Describe(target, project, fingerprintSettings));
+            results.Add(Describe(target, project, mutationSelection, fingerprintSettings));
         }
 
         return new Result<IReadOnlyList<Result<PreparedTarget, PipelineFailure>>, PipelineFailure>.Succeeded(results);
     }
 
-    /// <summary>対象一件の準備の結果の写し。成功なら csc 呼び出しの控えと指紋の算出</summary>
+    /// <summary>対象一件の準備の結果の写し。成功なら差分の解決と生成入力の控えと指紋の算出</summary>
     private Result<PreparedTarget, PipelineFailure> Describe(
         TargetRequest target,
         Result<PreparedProject, PipelineFailure> project,
+        MutationSelection selection,
         string? fingerprintSettings
     )
     {
@@ -62,40 +71,32 @@ internal sealed class MutantSourceFromMutating(
             return new Result<PreparedTarget, PipelineFailure>.Failed(failed.Failure);
         }
 
+        var resolved = generateMutants.ResolveChanges(selection, target.ProjectPath);
+        if (resolved is Result<ChangedLines?, PipelineFailure>.Failed(var changeFailure))
+        {
+            return new Result<PreparedTarget, PipelineFailure>.Failed(changeFailure);
+        }
+
         var value = ((Result<PreparedProject, PipelineFailure>.Succeeded)project).Value;
-        prepared[target.ProjectPath] = value.Sut;
+        var changes = ((Result<ChangedLines?, PipelineFailure>.Succeeded)resolved).Value;
+        prepared[target.ProjectPath] = new GenerationInput(value.Sut, selection, changes);
         return new Result<PreparedTarget, PipelineFailure>.Succeeded(
             new PreparedTarget(
                 target,
                 value.TestAssembly,
                 Path.GetFileNameWithoutExtension(value.Sut.OutputPath),
-                fingerprintSettings is null ? null : fingerprints.Compute(value.Sut, fingerprintSettings)
+                fingerprintSettings is { } settings ? fingerprints.Compute(value.Sut, settings, changes) : null
             )
         );
     }
 
     /// <inheritdoc />
-    public Result<GeneratedMutants, PipelineFailure> Generate(
-        PreparedTarget target,
-        SelectionRequest selection,
-        string mutatedDirectory
-    )
+    public Result<GeneratedMutants, PipelineFailure> Generate(PreparedTarget target, string mutatedDirectory)
     {
-        var sut = prepared.TryGetValue(target.Request.ProjectPath, out var found)
+        var input = prepared.TryGetValue(target.Request.ProjectPath, out var found)
             ? found
             : throw new InvalidOperationException("PrepareAsync の成功が先に要る");
-        var compiled = generateMutants.Execute(
-            sut,
-            new MutationSelection(
-                selection.MutatePatterns,
-                selection.SinceRef,
-                selection.ChangedLinesOnly,
-                selection.IgnoredOperators,
-                selection.IgnoredMethods
-            ),
-            target.Request.ProjectPath,
-            mutatedDirectory
-        );
+        var compiled = generateMutants.Execute(input.Sut, input.Selection, input.Changes, mutatedDirectory);
         if (compiled is Result<MutatedArtifact, PipelineFailure>.Failed(var failure))
         {
             return new Result<GeneratedMutants, PipelineFailure>.Failed(failure);
@@ -112,4 +113,10 @@ internal sealed class MutantSourceFromMutating(
             )
         );
     }
+
+    /// <summary>PrepareAsync が決め Generate が使う、対象一件の生成入力</summary>
+    /// <param name="Sut">対象 project の csc 呼び出し</param>
+    /// <param name="Selection">変異対象の選別</param>
+    /// <param name="Changes">差分運用の基点から変わった行。差分運用でなければ不在</param>
+    private sealed record GenerationInput(CscInvocation Sut, MutationSelection Selection, ChangedLines? Changes);
 }

@@ -53,14 +53,14 @@ A target that fails does not stop the others. Abandoned targets appear in the su
 | `--concurrency N` | Number of workers. Defaults to half the logical cores |
 | `--configuration NAME` | Build configuration. Defaults to Debug |
 | `--mutate GLOBS` | Globs of files to mutate, relative to the project directory. `!` excludes, `,` separates |
-| `--since REF` | Mutate only files whose content changed since the given git ref (working tree against `REF`, plus untracked files) |
+| `--since REF` | Mutate only files whose content changed since the given git ref (working tree against `REF`, plus untracked files). A file moved or renamed since `REF` counts as added |
 | `--changed-lines` | With `--since REF`, generate only mutants whose reported line range intersects changed lines. A diff failure fails the run; zero generated mutants pass a per-change run |
 | `--break-at SCORE` | Exit with code 2 when the mutation score is below this value |
 | `--ignore-operators NAMES` | Exclude mutation operators (for example `LiteralMutator`). `,` separates |
 | `--ignore-methods NAMES` | Do not mutate inside calls to these methods (for example `ConfigureAwait`). `,` separates |
 | `--validate-survivors` | Re-verify surviving mutants in a fresh process |
 | `--exclude-static` | Ignore mutants that only run during static initialization |
-| `--with-baseline` | Inherit verdicts of unchanged mutants from the previous run |
+| `--with-baseline` | Inherit verdicts of unchanged mutants from the previous run in the same output directory of the same kind: a whole run inherits from a whole run, and a `--since` run from a `--since` run |
 
 ## Reports
 
@@ -71,7 +71,7 @@ The run writes a console summary and two files under `<output>/reports/`:
 
 ## Changed-line gate
 
-`run --since REF` narrows mutation to whole files. Add `--changed-lines` to generate only mutants whose reported line range overlaps a line changed since `REF`. `changed-lines` still judges the report of that run, exiting nonzero if any changed-line mutant is undetected. Changed lines are the new side of the working tree against `REF`, and every line of an untracked file. A mutant counts as undetected when its status is `Survived` or `NoCoverage`; mutants outside the changed lines never affect the result. A per-change run with zero generated mutants succeeds; a whole-project run with zero generated mutants fails the full verification gate.
+`run --since REF` narrows mutation to whole files. Add `--changed-lines` to generate only mutants whose reported line range overlaps a line changed since `REF`. `changed-lines` still judges the report of that run, exiting nonzero if any changed-line mutant is undetected. Changed lines are the new side of the working tree against `REF`, every line of an untracked file, and every line of a file moved or renamed since `REF`, which counts as deleted and added. A mutant counts as undetected when its status is `Survived` or `NoCoverage`; mutants outside the changed lines never affect the result. A per-change run with zero generated mutants succeeds; a whole-project run with zero generated mutants fails the full verification gate.
 
 For a pre-push check, pass the point where the pushed range starts, for example the merge base with the upstream branch:
 

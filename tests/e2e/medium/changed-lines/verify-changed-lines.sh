@@ -121,4 +121,22 @@ dotnet "$cli" run \
 check "変異不能行の生成 0 件" 0 "$(jq '.counters.mutants' "$work/out-empty/reports/timings.json")"
 check "変異不能行の gate 成功" 0 "$(judge "$empty_base" "$work/out-empty/reports/mutation-report.json")"
 
+# commit 済みのファイルを内容を変えずに移動すると、移動先の全行が変わった行になり、生成と gate の両方が拾う
+git -C "$work" add -A
+moved_base="$(git -C "$work" commit-tree -p "$empty_base" -m moved-base "$(git -C "$work" write-tree)")"
+mkdir -p "$work/src/Fixture.Target/moved"
+git -C "$work" mv src/Fixture.Target/Calculator.cs src/Fixture.Target/moved/Calculator.cs
+dotnet "$cli" run \
+  --project "$work/src/Fixture.Target/Fixture.Target.csproj" \
+  --test-project "$work/src/Fixture.Target.Tests/Fixture.Target.Tests.csproj" \
+  --since "$moved_base" --changed-lines --output "$work/out-moved" > "$work/run-moved.log" 2>&1 \
+  || { echo "FAIL run with a moved file"; tail -20 "$work/run-moved.log"; exit 1; }
+calculator_mutants() {
+  jq '[.files | to_entries[] | select(.key | endswith("Calculator.cs")) | .value.mutants[]] | length' "$1"
+}
+check "移動したファイルの全行の生成" "$(calculator_mutants "$work/out/reports/mutation-report.json")" \
+  "$(calculator_mutants "$work/out-moved/reports/mutation-report.json")"
+check "移動したファイルの未検出は gate で失敗" 2 "$(judge "$moved_base" "$work/out-moved/reports/mutation-report.json")"
+check "移動したファイルの生存" 1 "$(grep -c '^src/Fixture.Target/moved/Calculator.cs:11:[0-9]* Survived ' "$work/stdout" || true)"
+
 exit "$fail"

@@ -1,5 +1,6 @@
 using Mutation.Mutating.Application;
 using Mutation.Mutating.Domain;
+using Mutation.Shared;
 
 namespace Mutation.Mutating.Infrastructure;
 
@@ -7,6 +8,6 @@ namespace Mutation.Mutating.Infrastructure;
 public sealed class Fingerprints : IFingerprints
 {
     /// <inheritdoc />
-    public string? Compute(CscInvocation invocation, string settings) =>
-        CompilationFingerprint.Compute(invocation, settings);
+    public string? Compute(CscInvocation invocation, string settings, ChangedLines? changes) =>
+        CompilationFingerprint.Compute(invocation, settings, changes);
 }

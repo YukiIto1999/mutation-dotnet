@@ -9,7 +9,7 @@ namespace Mutation.Mutating.Infrastructure.Git;
 public static class ChangedFiles
 {
     /// <summary>基点と作業木の差分と未追跡ファイルの、変わったファイルと行としての取得</summary>
-    /// <remarks>未追跡ファイルは全行が変わったものとする。git のどの command が失敗しても失敗を返す</remarks>
+    /// <remarks>未追跡ファイルは全行が変わったものとする。移動したファイルは削除と追加とみなし、移動先の全行が変わったものとする。git のどの command が失敗しても失敗を返す</remarks>
     /// <param name="projectDirectory">git repo の中にある directory</param>
     /// <param name="sinceRef">差分の基点になる git の参照</param>
     /// <returns>成功なら変わったファイルと行、失敗なら理由</returns>
@@ -32,7 +32,7 @@ public static class ChangedFiles
             projectDirectory,
             [
                 "-c", "core.quotePath=false",
-                "diff", "-U0", "--no-color", "--no-ext-diff", "--no-textconv", "--no-relative",
+                "diff", "-U0", "--no-color", "--no-ext-diff", "--no-textconv", "--no-relative", "--no-renames",
                 $"--dst-prefix={UnifiedDiff.NewSidePrefix}",
                 ((Result<string, PipelineFailure>.Succeeded)baseCommit).Value.Trim(), "--",
             ]
