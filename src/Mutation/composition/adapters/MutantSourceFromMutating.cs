@@ -89,6 +89,7 @@ internal sealed class MutantSourceFromMutating(
             new MutationSelection(
                 selection.MutatePatterns,
                 selection.SinceRef,
+                selection.ChangedLinesOnly,
                 selection.IgnoredOperators,
                 selection.IgnoredMethods
             ),

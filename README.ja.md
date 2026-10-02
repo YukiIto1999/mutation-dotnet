@@ -54,6 +54,7 @@ dotnet src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll run \
 | `--configuration NAME` | build 構成。既定 Debug |
 | `--mutate GLOBS` | 変異対象の glob。project directory 相対、`!` で除外、`,` 区切り |
 | `--since REF` | git の基点から内容が変わったファイルだけを対象にする(作業木と `REF` の差分と、未追跡ファイル) |
+| `--changed-lines` | `--since REF` とともに指定し、報告する範囲が変更行に重なる mutant だけを生成する。差分を取得できなければ失敗し、変更ごとの実行で生成が 0 件なら成功 |
 | `--break-at SCORE` | mutation score がこの値未満なら終了コード 2 |
 | `--ignore-operators NAMES` | 除外する変異演算子の名前。例 `LiteralMutator`。`,` 区切り |
 | `--ignore-methods NAMES` | この呼び出しの中を変異させない method 名。例 `ConfigureAwait`。`,` 区切り |
@@ -70,7 +71,7 @@ console 要約に加え、`<output>/reports/` へ 2 ファイルを書き出す�
 
 ## 変更行の判定
 
-`run --since REF` はファイル単位で変異対象を絞る。`changed-lines` はその実行の報告を読み、同じ `REF` から変わった行と範囲が一行でも重なる mutant だけを判定する。変わった行は、作業木と `REF` の差分の新しい側の行と、未追跡ファイルの全行。status が `Survived` か `NoCoverage` の mutant を未検出と数え、変わった行の外の mutant は結果に入れない。
+`run --since REF` はファイル単位で変異対象を絞る。`--changed-lines` を加えると、同じ `REF` から変わった行に報告範囲が重なる mutant だけを生成する。`changed-lines` はその報告を判定し、変わった行に未検出の mutant があれば非ゼロで終了する。変わった行は、作業木と `REF` の差分の新しい側の行と、未追跡ファイルの全行。status が `Survived` か `NoCoverage` の mutant を未検出と数え、変わった行の外の mutant は結果に入れない。変更ごとの実行で生成が 0 件なら成功し、全量の実行で生成が 0 件なら全量の検証入口が失敗する。
 
 push 前の検査の例。基点は push する範囲の始点で、ここでは upstream との分岐点。
 
@@ -79,7 +80,7 @@ base=$(git merge-base HEAD '@{upstream}' 2>/dev/null || git merge-base HEAD orig
 dotnet src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll run \
   --project path/to/Target.csproj \
   --test-project path/to/Target.Tests.csproj \
-  --since "$base" --output .mutation-output/push
+  --since "$base" --changed-lines --output .mutation-output/push
 dotnet src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll changed-lines \
   --report .mutation-output/push/reports/mutation-report.json --since "$base"
 ```

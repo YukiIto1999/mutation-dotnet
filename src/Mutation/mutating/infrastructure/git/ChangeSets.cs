@@ -8,12 +8,6 @@ namespace Mutation.Mutating.Infrastructure.Git;
 public sealed class ChangeSets : IChangeSets
 {
     /// <inheritdoc />
-    public Result<IReadOnlySet<string>, PipelineFailure> Resolve(string projectDirectory, string sinceRef) =>
-        ChangedFiles.Resolve(projectDirectory, sinceRef) switch
-        {
-            Result<ChangedLines, PipelineFailure>.Succeeded changed =>
-                new Result<IReadOnlySet<string>, PipelineFailure>.Succeeded(changed.Value.Files),
-            Result<ChangedLines, PipelineFailure>.Failed failed =>
-                new Result<IReadOnlySet<string>, PipelineFailure>.Failed(failed.Failure),
-        };
+    public Result<ChangedLines, PipelineFailure> Resolve(string projectDirectory, string sinceRef) =>
+        ChangedFiles.Resolve(projectDirectory, sinceRef);
 }

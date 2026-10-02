@@ -11,5 +11,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Mutation/Mutation.csproj" />
+    <ProjectReference Include="../../src/Mutation.Worker/Mutation.Worker.csproj" Aliases="mutationWorker" />
   </ItemGroup>
 </Project>

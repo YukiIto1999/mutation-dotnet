@@ -22,23 +22,31 @@ public sealed class GenerateMutants(IMutationCompilation compilation, IChangeSet
         string mutatedDirectory
     )
     {
-        IReadOnlySet<string>? changed = null;
+        ChangedLines? changes = null;
         if (selection.SinceRef is { Length: > 0 } sinceRef)
         {
             var resolved = changeSets.Resolve(Path.GetDirectoryName(projectPath) ?? ".", sinceRef);
-            if (resolved is Result<IReadOnlySet<string>, PipelineFailure>.Failed(var sinceFailure))
+            if (resolved is Result<ChangedLines, PipelineFailure>.Failed(var sinceFailure))
             {
                 return new Result<MutatedArtifact, PipelineFailure>.Failed(sinceFailure);
             }
 
-            changed = ((Result<IReadOnlySet<string>, PipelineFailure>.Succeeded)resolved).Value;
+            changes = ((Result<ChangedLines, PipelineFailure>.Succeeded)resolved).Value;
+        }
+
+        if (selection.ChangedLinesOnly && changes is null)
+        {
+            return new Result<MutatedArtifact, PipelineFailure>.Failed(
+                new PipelineFailure.SinceUnavailable("--changed-lines には --since が必要")
+            );
         }
 
         var policy = new MutationPolicy(
             MutationScope.FromPatterns(selection.MutatePatterns),
-            changed,
+            changes?.Files,
             selection.IgnoredOperators.ToHashSet(StringComparer.OrdinalIgnoreCase),
-            selection.IgnoredMethods.ToHashSet(StringComparer.Ordinal)
+            selection.IgnoredMethods.ToHashSet(StringComparer.Ordinal),
+            selection.ChangedLinesOnly ? changes : null
         );
         return compilation.Compile(sut, mutatedDirectory, policy);
     }
