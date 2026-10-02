@@ -42,6 +42,8 @@ public static class CandidateCollector
     {
         var allowed = operators.Where(o => policy.AllowsOperator(o.Name)).ToArray();
         var candidates = new List<MutationCandidate>();
+        var filterLines = policy.ChangedLinesOnly;
+        var filePath = root.SyntaxTree.FilePath;
         foreach (var node in root.DescendantNodesAndSelf())
         {
             foreach (var mutationOperator in allowed)
@@ -49,6 +51,7 @@ public static class CandidateCollector
                 candidates.AddRange(
                     mutationOperator
                         .Candidates(node, model)
+                        .Where(candidate => !filterLines || IncludesChangedLine(candidate, policy, filePath))
                         .Where(candidate => IsAdmissible(candidate, model) && !InsideIgnoredCall(candidate, policy))
                         .Select(candidate => StatementContexts.Normalize(candidate, model))
                         .OfType<MutationCandidate>()
@@ -57,6 +60,17 @@ public static class CandidateCollector
         }
 
         return candidates;
+    }
+
+    /// <summary>報告範囲と変わった行の重なり</summary>
+    /// <param name="candidate">選別対象の変異</param>
+    /// <param name="policy">変更行の選別方針</param>
+    /// <param name="filePath">対象の構文木の絶対 path</param>
+    /// <returns>報告範囲が変更行と重なるなら真</returns>
+    private static bool IncludesChangedLine(MutationCandidate candidate, MutationPolicy policy, string filePath)
+    {
+        var span = candidate.ReportTarget.GetLocation().GetLineSpan();
+        return policy.IncludesSpan(filePath, span.StartLinePosition.Line + 1, span.EndLinePosition.Line + 1);
     }
 
     /// <summary>無視指定の呼び出しの引数の中かの判定</summary>

@@ -8,6 +8,7 @@ namespace Mutation.Composition;
 /// <param name="ExcludeStatic">static 初期化でしか実行されない変異を対象外にするか</param>
 /// <param name="MutatePatterns">変異対象に含めるファイルの glob。先頭 `!` は除外。空なら全ファイル</param>
 /// <param name="SinceRef">差分運用の基点になる git の参照。使わないなら不在</param>
+/// <param name="ChangedLinesOnly">変更行に重なる変異だけを生成するか</param>
 /// <param name="IgnoredOperators">除外する変異演算子の名前の列</param>
 /// <param name="IgnoredMethods">その呼び出しの中を変異させない method 名の列</param>
 /// <param name="OutputDirectory">報告と中間物を置く directory</param>
@@ -20,6 +21,7 @@ public sealed record MutationRunOptions(
     bool ExcludeStatic,
     IReadOnlyList<string> MutatePatterns,
     string? SinceRef,
+    bool ChangedLinesOnly,
     IReadOnlyList<string> IgnoredOperators,
     IReadOnlyList<string> IgnoredMethods,
     string OutputDirectory,
@@ -31,6 +33,7 @@ public sealed record MutationRunOptions(
     public string FingerprintSettings() =>
         $"mutate:{string.Join(',', MutatePatterns)}\n"
         + $"since:{SinceRef}\n"
+        + $"changed-lines:{ChangedLinesOnly}\n"
         + $"ignore-operators:{string.Join(',', IgnoredOperators)}\n"
         + $"ignore-methods:{string.Join(',', IgnoredMethods)}\n"
         + $"exclude-static:{ExcludeStatic}\n"

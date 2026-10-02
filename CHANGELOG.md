@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-10-02
+
+### Added
+
+- `run --since REF --changed-lines` generates and executes only mutants whose reported source span intersects a changed line. Untracked files remain fully selected, and a change with no eligible mutants succeeds without executing unrelated mutants.
+
+### Changed
+
+- `--since` resolves its base to a commit before diffing, so invalid refs and Git options supplied as refs fail instead of silently changing the selection.
+- The pre-push verification runs changed-line generation before applying the existing `changed-lines` report gate; whole-project mutation remains a separate, non-gating release check.
+
 ## [0.3.1] - 2026-10-01
 
 ### Fixed

@@ -22,12 +22,19 @@ public static class ChangedFiles
         }
 
         var root = ((Result<string, PipelineFailure>.Succeeded)toplevel).Value.Trim();
+        var baseCommit = Run(projectDirectory, ["rev-parse", "--verify", "--end-of-options", $"{sinceRef}^{{commit}}"]);
+        if (baseCommit is Result<string, PipelineFailure>.Failed(var baseFailure))
+        {
+            return new Result<ChangedLines, PipelineFailure>.Failed(baseFailure);
+        }
+
         var diff = Run(
             projectDirectory,
             [
                 "-c", "core.quotePath=false",
                 "diff", "-U0", "--no-color", "--no-ext-diff", "--no-textconv", "--no-relative",
-                $"--dst-prefix={UnifiedDiff.NewSidePrefix}", sinceRef, "--",
+                $"--dst-prefix={UnifiedDiff.NewSidePrefix}",
+                ((Result<string, PipelineFailure>.Succeeded)baseCommit).Value.Trim(), "--",
             ]
         );
         if (diff is Result<string, PipelineFailure>.Failed(var diffFailure))
