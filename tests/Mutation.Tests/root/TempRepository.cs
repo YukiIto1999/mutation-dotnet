@@ -41,6 +41,13 @@ public sealed partial class ChangedLinesGateFacts
             return (await GitAsync("commit-tree", "-m", "base", tree)).Trim();
         }
 
+        /// <summary>index に載ったファイルの `git mv` による移動</summary>
+        public async Task MoveAsync(string from, string to)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(PathOf(to))!);
+            await GitAsync("mv", from, to);
+        }
+
         /// <summary>root を projectRoot にした互換 schema の報告の書き込みと、その path</summary>
         public async Task<string> WriteReportAsync(params (string File, string Id, int Line, string Status)[] mutants)
         {

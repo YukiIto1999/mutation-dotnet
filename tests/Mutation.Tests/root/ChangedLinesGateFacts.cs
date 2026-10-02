@@ -77,6 +77,30 @@ public sealed partial class ChangedLinesGateFacts
             .IsEquivalentTo(["inserted", "changed"]);
     }
 
+    /// <summary>移動したファイルが、内容を変えていない行も含めて全行を変わった行として選ばれること</summary>
+    [Test]
+    public async Task Moved_files_count_every_line_as_changed()
+    {
+        using var repo = await TempRepository.CreateAsync();
+        await repo.WriteAsync("src/Kept.cs", NumberedLines("kept"));
+        await repo.WriteAsync("src/Edited.cs", NumberedLines("edited"));
+        var baseRef = await repo.CommitAllAsync();
+        await repo.MoveAsync("src/Kept.cs", "src/moved/Kept.cs");
+        await repo.MoveAsync("src/Edited.cs", "src/moved/Edited.cs");
+        await repo.WriteAsync("src/moved/Edited.cs", NumberedLines("edited").Replace("edited 2\n", "rewritten 2\n"));
+        var report = await repo.WriteReportAsync(
+            ("src/moved/Kept.cs", "kept", 9, "Survived"),
+            ("src/moved/Edited.cs", "edited-elsewhere", 9, "NoCoverage")
+        );
+
+        var outcome = BuildCore.Create().OnChangedLines(report, baseRef);
+
+        await Assert.That(outcome is Result<ChangedLineVerdicts, PipelineFailure>.Succeeded).IsTrue();
+        var verdicts = ((Result<ChangedLineVerdicts, PipelineFailure>.Succeeded)outcome).Value;
+        await Assert.That(verdicts.Undetected.Select(mutant => mutant.Id).ToArray())
+            .IsEquivalentTo(["kept", "edited-elsewhere"]);
+    }
+
     /// <summary>解けない基点が、変わった行の無い合格でなく、git の失敗を伝える差分の失敗になること</summary>
     [Test]
     public async Task Unknown_base_ref_fails_instead_of_passing()
@@ -122,4 +146,8 @@ public sealed partial class ChangedLinesGateFacts
         await Assert.That(outcome is Result<ChangedLineVerdicts, PipelineFailure>.Failed(PipelineFailure.ReportUnreadable))
             .IsTrue();
     }
+
+    /// <summary>git が移動の前後を対にできるほど似た、語と行番号を並べた 10 行</summary>
+    private static string NumberedLines(string word) =>
+        string.Concat(Enumerable.Range(1, 10).Select(number => $"{word} {number}\n"));
 }
