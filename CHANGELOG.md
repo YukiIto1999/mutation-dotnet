@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.1] - 2026-10-02
+
+### Fixed
+
+- `run --since`, `--changed-lines`, and the `changed-lines` gate treat a file moved or renamed since `REF` as deleted and added, so every line at its new path counts as changed. Git's rename detection used to leave a pure move with no changed lines and a move with edits with only its edited hunks, so both mutant generation and the gate skipped them. This reverses the 0.3.0 change that stopped selecting pure renames.
+- `run --since REF --with-baseline` resolves `REF` and its diff before reusing the previous run, and the reuse key includes the changed lines of the target's sources. When `REF` moves, the run no longer returns results for the old changed lines, and when `REF` no longer resolves, the target fails instead of succeeding from the saved snapshot.
+- `--since` runs keep their snapshot and mutated assembly under `since/` in the output directory, apart from whole runs. They no longer overwrite the whole-run snapshot, so the next whole `--with-baseline` run in the same output directory can still reuse it.
+
 ## [0.4.0] - 2026-10-02
 
 ### Added

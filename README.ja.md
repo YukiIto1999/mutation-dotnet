@@ -53,14 +53,14 @@ dotnet src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll run \
 | `--concurrency N` | worker 数。既定は論理コア数の半分 |
 | `--configuration NAME` | build 構成。既定 Debug |
 | `--mutate GLOBS` | 変異対象の glob。project directory 相対、`!` で除外、`,` 区切り |
-| `--since REF` | git の基点から内容が変わったファイルだけを対象にする(作業木と `REF` の差分と、未追跡ファイル) |
+| `--since REF` | git の基点から内容が変わったファイルだけを対象にする(作業木と `REF` の差分と、未追跡ファイル)。`REF` から移動か改名したファイルは追加の扱い |
 | `--changed-lines` | `--since REF` とともに指定し、報告する範囲が変更行に重なる mutant だけを生成する。差分を取得できなければ失敗し、変更ごとの実行で生成が 0 件なら成功 |
 | `--break-at SCORE` | mutation score がこの値未満なら終了コード 2 |
 | `--ignore-operators NAMES` | 除外する変異演算子の名前。例 `LiteralMutator`。`,` 区切り |
 | `--ignore-methods NAMES` | この呼び出しの中を変異させない method 名。例 `ConfigureAwait`。`,` 区切り |
 | `--validate-survivors` | 生存 mutant を新規プロセスで再検証 |
 | `--exclude-static` | static 初期化でしか実行されない変異を対象外にし、Ignored として報告 |
-| `--with-baseline` | 前回実行の保存から不変の mutant の判定を継承 |
+| `--with-baseline` | 同じ出力先の同じ種類の前回実行の保存から、不変の mutant の判定を継承。全量の実行は全量の実行から、`--since` の実行は `--since` の実行から継承 |
 
 ## レポート
 
@@ -71,7 +71,7 @@ console 要約に加え、`<output>/reports/` へ 2 ファイルを書き出す�
 
 ## 変更行の判定
 
-`run --since REF` はファイル単位で変異対象を絞る。`--changed-lines` を加えると、同じ `REF` から変わった行に報告範囲が重なる mutant だけを生成する。`changed-lines` はその報告を判定し、変わった行に未検出の mutant があれば非ゼロで終了する。変わった行は、作業木と `REF` の差分の新しい側の行と、未追跡ファイルの全行。status が `Survived` か `NoCoverage` の mutant を未検出と数え、変わった行の外の mutant は結果に入れない。変更ごとの実行で生成が 0 件なら成功し、全量の実行で生成が 0 件なら全量の検証入口が失敗する。
+`run --since REF` はファイル単位で変異対象を絞る。`--changed-lines` を加えると、同じ `REF` から変わった行に報告範囲が重なる mutant だけを生成する。`changed-lines` はその報告を判定し、変わった行に未検出の mutant があれば非ゼロで終了する。変わった行は、作業木と `REF` の差分の新しい側の行と、未追跡ファイルの全行と、`REF` から移動か改名したファイルの全行。移動と改名は削除と追加の扱い。status が `Survived` か `NoCoverage` の mutant を未検出と数え、変わった行の外の mutant は結果に入れない。変更ごとの実行で生成が 0 件なら成功し、全量の実行で生成が 0 件なら全量の検証入口が失敗する。
 
 push 前の検査の例。基点は push する範囲の始点で、ここでは upstream との分岐点。
 
