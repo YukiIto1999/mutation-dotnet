@@ -62,7 +62,7 @@ internal sealed class TargetRun(
         PreparedTarget target
     )
     {
-        var compiled = mutantSource.Generate(target, session.Request.Selection, layout.MutatedDirectory);
+        var compiled = mutantSource.Generate(target, layout.MutatedDirectory);
         if (compiled is Result<GeneratedMutants, PipelineFailure>.Failed(var compileFailure))
         {
             return new Result<TargetResult, PipelineFailure>.Failed(compileFailure);

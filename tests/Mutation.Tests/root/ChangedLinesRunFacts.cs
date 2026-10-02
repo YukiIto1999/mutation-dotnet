@@ -69,6 +69,71 @@ public sealed partial class ChangedLinesGateFacts
             .Contains("--since");
     }
 
+    /// <summary>`--with-baseline` の差分運用が、同じ名前の基点の移動と消失を解き直し、前回の結果を流用しないこと</summary>
+    [Test]
+    public async Task Baseline_run_resolves_a_moved_or_deleted_base_again()
+    {
+        using var repo = await TempRepository.CreateAsync();
+        const string upstream = "refs/remotes/origin/main";
+        await repo.SetRefAsync(upstream, await CommitFixtureAsync(repo));
+        var options = new MutationRunOptions(
+            [FixtureTarget(repo)], "Debug", 2, false, false, [], "origin/main", true, [], [],
+            repo.PathOf("out/lines"), true
+        );
+        var first = await RunAsync(options);
+        await Assert.That(first.Completed.Single().Mutants.Select(m => m.Span.Line).ToArray()).IsEquivalentTo([11]);
+
+        await repo.SetRefAsync(upstream, await repo.CommitAllAsync());
+        var moved = await RunAsync(options);
+        await Assert.That(moved.Completed.Single().Mutants).IsEmpty();
+
+        await repo.DeleteRefAsync(upstream);
+        var deleted = await RunAsync(options);
+        await Assert.That(deleted.Completed).IsEmpty();
+        await Assert.That(deleted.Failures.Single().Failure is PipelineFailure.SinceUnavailable).IsTrue();
+    }
+
+    /// <summary>検証フィクスチャを書いて commit し、生存する 11 行目だけを作業木で書き換えた、その commit の id</summary>
+    private static async Task<string> CommitFixtureAsync(TempRepository repo)
+    {
+        var fixture = FixturePath();
+        foreach (var relative in new[]
+        {
+            "Directory.Build.props",
+            "Fixture.Target/Fixture.Target.csproj",
+            "Fixture.Target/Calculator.cs",
+            "Fixture.Target/Configured.cs",
+            "Fixture.Target.Tests/Fixture.Target.Tests.csproj",
+            "Fixture.Target.Tests/CalculatorTests.cs",
+        })
+        {
+            await repo.WriteAsync(Path.Combine("src", relative), await File.ReadAllTextAsync(Path.Combine(fixture, relative)));
+        }
+
+        await repo.WriteAsync(".gitignore", "bin/\nobj/\nout/\n");
+        var baseRef = await repo.CommitAllAsync();
+        var calculator = repo.PathOf("src/Fixture.Target/Calculator.cs");
+        var source = await File.ReadAllLinesAsync(calculator);
+        source[10] += " // changed";
+        await File.WriteAllLinesAsync(calculator, source);
+        return baseRef;
+    }
+
+    /// <summary>一時 repository に書いた検証フィクスチャの対象とテストの project</summary>
+    private static TargetSpec FixtureTarget(TempRepository repo) =>
+        new(
+            repo.PathOf("src/Fixture.Target/Fixture.Target.csproj"),
+            repo.PathOf("src/Fixture.Target.Tests/Fixture.Target.Tests.csproj")
+        );
+
+    /// <summary>組み立て済みの経路での一回の実行と、成功したときの確定結果</summary>
+    private static async Task<MutationRunResult> RunAsync(MutationRunOptions options)
+    {
+        var run = await BuildCore.Create().RunAsync(options, _ => { });
+        await Assert.That(run is Result<MutationRunResult, PipelineFailure>.Succeeded).IsTrue();
+        return ((Result<MutationRunResult, PipelineFailure>.Succeeded)run).Value;
+    }
+
     /// <summary>変異検査の source fixture の directory</summary>
     private static string FixturePath()
     {

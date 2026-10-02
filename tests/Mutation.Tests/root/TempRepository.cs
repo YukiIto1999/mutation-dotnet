@@ -48,6 +48,12 @@ public sealed partial class ChangedLinesGateFacts
             await GitAsync("mv", from, to);
         }
 
+        /// <summary>参照の commit への付け替え。無ければ作る</summary>
+        public async Task SetRefAsync(string reference, string commit) => await GitAsync("update-ref", reference, commit);
+
+        /// <summary>参照の削除</summary>
+        public async Task DeleteRefAsync(string reference) => await GitAsync("update-ref", "-d", reference);
+
         /// <summary>root を projectRoot にした互換 schema の報告の書き込みと、その path</summary>
         public async Task<string> WriteReportAsync(params (string File, string Id, int Line, string Status)[] mutants)
         {

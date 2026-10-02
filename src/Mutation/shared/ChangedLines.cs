@@ -23,6 +23,11 @@ public sealed class ChangedLines
     /// <param name="last">範囲の最後の行</param>
     /// <returns>重なるなら真</returns>
     public bool Overlaps(string absolutePath, int first, int last) =>
-        ranges.TryGetValue(Path.GetFullPath(absolutePath), out var changed)
-        && changed.Any(range => range.Overlaps(first, last));
+        RangesOf(absolutePath) is { } changed && changed.Any(range => range.Overlaps(first, last));
+
+    /// <summary>ファイルの変わった行の範囲の列。内容が変わっていないファイルなら不在</summary>
+    /// <param name="absolutePath">ファイルの絶対 path</param>
+    /// <returns>変わった行の範囲の列。行の削除だけのファイルは空の列</returns>
+    public IReadOnlyList<LineRange>? RangesOf(string absolutePath) =>
+        ranges.TryGetValue(Path.GetFullPath(absolutePath), out var changed) ? changed : null;
 }

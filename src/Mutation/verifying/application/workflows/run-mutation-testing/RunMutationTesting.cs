@@ -35,6 +35,7 @@ public sealed class RunMutationTesting(
         var located = await mutantSource
             .PrepareAsync(
                 request.Targets,
+                request.Selection,
                 layout.WorkDirectory,
                 request.WithBaseline ? request.FingerprintSettings : null
             )
