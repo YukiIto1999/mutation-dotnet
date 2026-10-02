@@ -65,13 +65,13 @@ public sealed class MutationPolicy
     public bool IncludesFile(string absolutePath, string relativePath) =>
         scope.Includes(relativePath) && (changedFiles is null || changedFiles.Contains(Path.GetFullPath(absolutePath)));
 
-    /// <summary>候補の報告範囲が変更行に重なるかの判定</summary>
+    /// <summary>変更行を持つ方針での候補報告範囲の重なり判定</summary>
     /// <param name="absolutePath">ファイルの絶対 path</param>
     /// <param name="first">報告範囲の最初の行</param>
     /// <param name="last">報告範囲の最後の行</param>
-    /// <returns>行を絞らない場合または変更行に重なる場合に真</returns>
+    /// <returns>変更行に重なる場合に真</returns>
     public bool IncludesSpan(string absolutePath, int first, int last) =>
-        changedLines is null || changedLines.Overlaps(absolutePath, first, last);
+        changedLines!.Overlaps(absolutePath, first, last);
 
     /// <summary>演算子が変異生成に使えるか</summary>
     /// <param name="operatorName">変異演算子の名前。大文字小文字は区別しない</param>
