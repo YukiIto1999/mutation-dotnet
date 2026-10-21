@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Versioned maintainer documentation under `docs/`, describing the current architecture, limitations and performance measurement procedure. Plans, investigations and experiment results belong in the ignored `work/` directory instead.
+
+### Changed
+
+- `verify-full` appends its backlog to `work/backlog.md` instead of `docs/backlog.md`, and the manual medium benchmark writes to `work/performance/medium/` instead of `tests/performance/medium/work/`. Preserve existing local records under `work/` before rerunning the benchmark, which recreates its target and results directories.
+
 ## [0.4.1] - 2026-10-02
 
 ### Fixed

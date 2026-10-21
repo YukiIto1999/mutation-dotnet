@@ -8,5 +8,4 @@ obj/
 CLAUDE.md
 StrykerOutput/
 .mutation-output/
-tests/performance/medium/work/
-docs/
+/work/
