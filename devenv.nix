@@ -40,19 +40,19 @@
     dotnet "$cli" changed-lines --report .mutation-output/push/reports/mutation-report.json --since "$base"
   '';
 
-  # T3(予算なし、gate にしない): 全量の mutation と e2e。前回の T3 から増えた失敗と未検出の変異を docs/backlog.md へ記録する
+  # T3(予算なし、gate にしない): 全量の mutation と e2e。前回の T3 から増えた失敗と未検出の変異を work/backlog.md へ記録する
   scripts.verify-full.exec = ''
     set -euo pipefail
 
     out=.mutation-output/full
     cli=src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll
-    mkdir -p "$out" docs
+    mkdir -p "$out" work
     heading="## $(date +%F) verify-full $(git rev-parse --short HEAD)"
 
     # 前回の T3 と同じ段の失敗は記録し直さない
     failed() {
       if [ "$(cat "$out/failed-stage" 2>/dev/null)" != "$1" ]; then
-        printf '\n%s\n\n- [ ] %s が失敗した\n' "$heading" "$1" >> docs/backlog.md
+        printf '\n%s\n\n- [ ] %s が失敗した\n' "$heading" "$1" >> work/backlog.md
       fi
       printf '%s' "$1" > "$out/failed-stage"
       echo "verify-full: $1 が失敗した" >&2
@@ -83,8 +83,8 @@
       "$out/undetected.next.json" > "$out/delta.txt"
     mv "$out/undetected.next.json" "$out/undetected.json"
     if [ -s "$out/delta.txt" ]; then
-      { printf '\n%s\n\n' "$heading"; sed 's/^/- [ ] /' "$out/delta.txt"; } >> docs/backlog.md
+      { printf '\n%s\n\n' "$heading"; sed 's/^/- [ ] /' "$out/delta.txt"; } >> work/backlog.md
     fi
-    echo "verify-full: 変異 $mutants 件、前回の T3 から増えた未検出 $(wc -l < "$out/delta.txt") 件(docs/backlog.md)"
+    echo "verify-full: 変異 $mutants 件、前回の T3 から増えた未検出 $(wc -l < "$out/delta.txt") 件(work/backlog.md)"
   '';
 }
