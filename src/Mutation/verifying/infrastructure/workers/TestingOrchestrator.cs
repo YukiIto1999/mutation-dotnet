@@ -123,6 +123,12 @@ public sealed class TestingOrchestrator : IDisposable
             return await StartSharedAsync().ConfigureAwait(false);
         }
 
+        if (IsUnreached(completed, settled))
+        {
+            isolated.Enqueue(plan with { Execution = plan.Execution.ToIsolated() });
+            return settled is MutantVerdict.Killed ? await RestartAsync(client, tally).ConfigureAwait(false) : client;
+        }
+
         if (settled is MutantVerdict.Survived && plan.Execution is MutantExecution.ResidentThenIsolated)
         {
             isolated.Enqueue(plan with { Execution = plan.Execution.ToIsolated() });
@@ -131,5 +137,18 @@ public sealed class TestingOrchestrator : IDisposable
 
         tally.Record(plan, settled, completed.ExecutedTests ?? order.Count, stopwatch.Elapsed.TotalMilliseconds, isolated: false);
         return client;
+    }
+
+    /// <summary>活性の変異の枝へ一度も入らずに出た生存か検出かの判定</summary>
+    /// <remarks>先行する検査が process 内に残した状態(memo、遅延初期化、static cache)が変異の経路を飛ばすか、汚れた状態がテストを落とした疑いがあり、新規 process で確かめ直す</remarks>
+    private static bool IsUnreached(WorkerResponse.RunCompleted completed, MutantVerdict settled) =>
+        completed.Reached == false && settled is MutantVerdict.Survived or MutantVerdict.Killed;
+
+    /// <summary>状態が壊れた疑いのある worker の破棄と、新しい共有 worker の起動</summary>
+    private async Task<WorkerClient?> RestartAsync(WorkerClient client, RunTally tally)
+    {
+        client.Dispose();
+        tally.CountRestart();
+        return await StartSharedAsync().ConfigureAwait(false);
     }
 }

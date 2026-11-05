@@ -123,6 +123,7 @@ public sealed class PlatformTestHost : ITestHost
 
         var code = Invoke(["--filter-uid", .. uids, .. commonArguments, .. flavor.FailFastArguments]);
         var tripped = accessor.TakeHitLimitTripped();
+        var reached = accessor.TakeReached();
         if (!HostEnvironment.IsPreactivated)
         {
             accessor.Activate(-1, long.MaxValue);
@@ -139,7 +140,7 @@ public sealed class PlatformTestHost : ITestHost
             _ when tripped => WorkerContract.OutcomeHitLimit,
             _ => WorkerContract.OutcomeKilled,
         };
-        return new WorkerResponse.RunCompleted(outcome, null, null, stopwatch.Elapsed.TotalMilliseconds);
+        return new WorkerResponse.RunCompleted(outcome, null, null, stopwatch.Elapsed.TotalMilliseconds, reached);
     }
 
     /// <inheritdoc />
