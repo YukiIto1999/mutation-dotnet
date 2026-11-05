@@ -10,3 +10,4 @@ StrykerOutput/
 .mutation-output/
 tests/performance/medium/work/
 docs/
+tests/performance/redesign/work/
