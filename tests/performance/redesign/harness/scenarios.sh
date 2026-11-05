@@ -20,6 +20,8 @@ prepare() {
   python3 "$here/make-slow-tests.py" "$W/synthslow"
   cp -r "$W/synth40" "$W/synth40git"
   for g in synth40git stale; do
+    # bin/obj を未追跡の変更と見なすツールがあるため、通常の repository と同じく無視する
+    printf 'bin/\nobj/\nStrykerOutput/\n' > "$W/$g/.gitignore"
     (cd "$W/$g" && git init -q -b main && git add -A && git -c user.name=bench -c user.email=bench@example.invalid commit -q -m v1)
   done
 }
@@ -48,7 +50,7 @@ incremental() {
   reset_git() { (cd "$1" && git checkout -q -- . && git clean -q -fdx -e bin -e obj); }
   for tool in ours stryker; do
     reset_git "$G"; out="$base/work/out/inc-$tool"; rm -rf "$out" "$out-since"
-    if [ $tool = ours ]; then bl="--with-baseline"; else bl="--with-baseline:main"; fi
+    if [ $tool = ours ]; then bl="--with-baseline"; else bl="--with-baseline:main --version main"; fi
     BENCH_OUTDIR=$out $R $tool i-$tool-1-cold "$G" $P1 $T1 2 -- $bl
     BENCH_OUTDIR=$out $R $tool i-$tool-2-warm "$G" $P1 $T1 2 --keep -- $bl
     (cd "$G" && printf '\n// change\n' >> Bench.Target/Mod3.cs)
@@ -62,7 +64,7 @@ incremental() {
   S="$W/stale"
   for tool in ours stryker; do
     reset_git "$S"; out="$base/work/out/stale-$tool"; rm -rf "$out"
-    if [ $tool = ours ]; then bl="--with-baseline"; else bl="--with-baseline:main"; fi
+    if [ $tool = ours ]; then bl="--with-baseline"; else bl="--with-baseline:main --version main"; fi
     BENCH_OUTDIR=$out $R $tool s-$tool-1 "$S" Stale.App/Stale.App.csproj Stale.App.Tests/Stale.App.Tests.csproj 2 -- $bl
     cp "$S/Normalizer.v2.cs.txt" "$S/Stale.Core/Normalizer.cs"
     BENCH_OUTDIR=$out $R $tool s-$tool-2 "$S" Stale.App/Stale.App.csproj Stale.App.Tests/Stale.App.Tests.csproj 2 --keep -- $bl
