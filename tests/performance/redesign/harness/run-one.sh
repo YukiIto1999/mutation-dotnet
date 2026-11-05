@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 一件の計測: 対象を clean にし build server を止めてから、cgroup 計測下で一回実行する
 # usage: run-one.sh TOOL(ours|stryker) NAME WORKDIR PROJECT TESTPROJECT CONCURRENCY [--keep] [--mem MB] [--cpus LIST] -- [extra args]
-# env: OUT_ROOT(計測結果の置き場)、OUTDIR(ツール出力を固定する増分シナリオ用)、MUTATION_CLI、STRYKER_CLI
+# env: OUT_ROOT(計測結果の置き場)、BENCH_OUTDIR(ツール出力を固定する増分シナリオ用。OUTDIR は MSBuild の OutDir と衝突するため使わない)、MUTATION_CLI、STRYKER_CLI
 set -uo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$here/../../../.." && pwd)"
@@ -19,10 +19,10 @@ done
 [ "${1:-}" = "--" ] && shift
 root="${OUT_ROOT:-$here/../work/out}"
 mkdir -p "$root/runs"
-out="${OUTDIR:-$root/runs/$name}"
+out="${BENCH_OUTDIR:-$root/runs/$name}"
 meta="$root/runs/$name"
 if [ "$keep" = 0 ]; then
-  [ -z "${OUTDIR:-}" ] && rm -rf "$out"
+  [ -z "${BENCH_OUTDIR:-}" ] && rm -rf "$out"
   find "$workdir" -type d \( -name bin -o -name obj -o -name StrykerOutput \) -prune -exec rm -rf {} + 2>/dev/null
 fi
 dotnet build-server shutdown >/dev/null 2>&1

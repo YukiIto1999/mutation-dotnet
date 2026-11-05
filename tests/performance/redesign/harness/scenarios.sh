@@ -49,23 +49,23 @@ incremental() {
   for tool in ours stryker; do
     reset_git "$G"; out="$base/work/out/inc-$tool"; rm -rf "$out" "$out-since"
     if [ $tool = ours ]; then bl="--with-baseline"; else bl="--with-baseline:main"; fi
-    OUTDIR=$out $R $tool i-$tool-1-cold "$G" $P1 $T1 2 -- $bl
-    OUTDIR=$out $R $tool i-$tool-2-warm "$G" $P1 $T1 2 --keep -- $bl
+    BENCH_OUTDIR=$out $R $tool i-$tool-1-cold "$G" $P1 $T1 2 -- $bl
+    BENCH_OUTDIR=$out $R $tool i-$tool-2-warm "$G" $P1 $T1 2 --keep -- $bl
     (cd "$G" && printf '\n// change\n' >> Bench.Target/Mod3.cs)
-    OUTDIR=$out $R $tool i-$tool-3-src "$G" $P1 $T1 2 --keep -- $bl
+    BENCH_OUTDIR=$out $R $tool i-$tool-3-src "$G" $P1 $T1 2 --keep -- $bl
     (cd "$G" && sed -i 's#^}$#    [Fact] public void Extra_case() => Assert.Equal(1, 1);\n}#' Bench.Target.Tests/Mod5Tests.cs)
-    OUTDIR=$out $R $tool i-$tool-4-test "$G" $P1 $T1 2 --keep -- $bl
+    BENCH_OUTDIR=$out $R $tool i-$tool-4-test "$G" $P1 $T1 2 --keep -- $bl
     if [ $tool = ours ]; then since="--since HEAD"; else since="--since:main"; fi
-    OUTDIR=$out-since $R $tool i-$tool-5-since "$G" $P1 $T1 2 --keep -- $since
+    BENCH_OUTDIR=$out-since $R $tool i-$tool-5-since "$G" $P1 $T1 2 --keep -- $since
   done
   reset_git "$G"
   S="$W/stale"
   for tool in ours stryker; do
     reset_git "$S"; out="$base/work/out/stale-$tool"; rm -rf "$out"
     if [ $tool = ours ]; then bl="--with-baseline"; else bl="--with-baseline:main"; fi
-    OUTDIR=$out $R $tool s-$tool-1 "$S" Stale.App/Stale.App.csproj Stale.App.Tests/Stale.App.Tests.csproj 2 -- $bl
+    BENCH_OUTDIR=$out $R $tool s-$tool-1 "$S" Stale.App/Stale.App.csproj Stale.App.Tests/Stale.App.Tests.csproj 2 -- $bl
     cp "$S/Normalizer.v2.cs.txt" "$S/Stale.Core/Normalizer.cs"
-    OUTDIR=$out $R $tool s-$tool-2 "$S" Stale.App/Stale.App.csproj Stale.App.Tests/Stale.App.Tests.csproj 2 --keep -- $bl
+    BENCH_OUTDIR=$out $R $tool s-$tool-2 "$S" Stale.App/Stale.App.csproj Stale.App.Tests/Stale.App.Tests.csproj 2 --keep -- $bl
   done
   reset_git "$S"
 }
