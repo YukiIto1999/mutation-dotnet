@@ -16,14 +16,12 @@ public static class BaselineExecution
     public static async Task<Result<BaselineProfile, PipelineFailure>> RunAsync(WorkerLaunchPlan launch, int concurrency)
     {
         var opened = await OpenAsync(launch).ConfigureAwait(false);
-        if (opened is Result<(WorkerClient, IReadOnlyList<string>), PipelineFailure>.Failed(var openFailure))
+        if (opened.IsFailed(out var openFailure, out var openedWorker))
         {
-            return new Result<BaselineProfile, PipelineFailure>.Failed(openFailure);
+            return openFailure;
         }
 
-        var (first, allIds) = (
-            (Result<(WorkerClient, IReadOnlyList<string>), PipelineFailure>.Succeeded)opened
-        ).Value;
+        var (first, allIds) = openedWorker;
         using var firstClient = first;
         var lanes = Math.Clamp(concurrency, 1, Math.Max(1, allIds.Count / 8));
         var shards = Shard(allIds, lanes);
@@ -34,17 +32,17 @@ public static class BaselineExecution
         var responses = new List<WorkerResponse.Baselined>(collections.Length);
         foreach (var collection in collections)
         {
-            if (collection is Result<WorkerResponse.Baselined, PipelineFailure>.Failed(var failure))
+            if (collection.IsFailed(out var failure, out var baselined))
             {
-                return new Result<BaselineProfile, PipelineFailure>.Failed(failure);
+                return failure;
             }
 
-            responses.Add(((Result<WorkerResponse.Baselined, PipelineFailure>.Succeeded)collection).Value);
+            responses.Add(baselined);
         }
 
         var observed = responses.SelectMany(r => r.Tests).ToArray();
         var ambient = responses.SelectMany(r => r.Ambient).ToArray();
-        return new Result<BaselineProfile, PipelineFailure>.Succeeded(BaselineMapping.Map(observed, ambient));
+        return Result.Succeeded(BaselineMapping.Map(observed, ambient));
     }
 
     /// <summary>先頭 worker の起動と全テストの一意識別子の発見</summary>
@@ -55,14 +53,14 @@ public static class BaselineExecution
         var client = StartCoverageWorker(launch);
         if (client is null)
         {
-            return Failure<(WorkerClient, IReadOnlyList<string>)>("worker を起動できない");
+            return Failure("worker を起動できない");
         }
 
         var init = await InitAsync(client, launch).ConfigureAwait(false);
         if (init is not null)
         {
             client.Dispose();
-            return new Result<(WorkerClient, IReadOnlyList<string>), PipelineFailure>.Failed(init);
+            return Result.Failed<PipelineFailure>(init);
         }
 
         var discovered = await client
@@ -70,17 +68,17 @@ public static class BaselineExecution
             .ConfigureAwait(false);
         if (discovered.Response is WorkerResponse.Discovered { TestIds.Count: > 0 } listed)
         {
-            return new Result<(WorkerClient, IReadOnlyList<string>), PipelineFailure>.Succeeded((client, listed.TestIds));
+            return Result.Succeeded<(WorkerClient, IReadOnlyList<string>)>((client, listed.TestIds));
         }
 
         client.Dispose();
         return discovered.Response switch
         {
-            WorkerResponse.Discovered => new Result<(WorkerClient, IReadOnlyList<string>), PipelineFailure>.Failed(
+            WorkerResponse.Discovered => Result.Failed<PipelineFailure>(
                 new PipelineFailure.NoTestsFound(launch.TestAssemblyPath)
             ),
-            WorkerResponse.Failed(var error) => Failure<(WorkerClient, IReadOnlyList<string>)>(error),
-            _ => Failure<(WorkerClient, IReadOnlyList<string>)>("discover に応答がない"),
+            WorkerResponse.Failed(var error) => Failure(error),
+            _ => Failure("discover に応答がない"),
         };
     }
 
@@ -94,14 +92,14 @@ public static class BaselineExecution
         var client = existing ?? StartCoverageWorker(launch);
         if (client is null)
         {
-            return Failure<WorkerResponse.Baselined>("worker を起動できない");
+            return Failure("worker を起動できない");
         }
 
         try
         {
             if (existing is null && await InitAsync(client, launch).ConfigureAwait(false) is { } initFailure)
             {
-                return new Result<WorkerResponse.Baselined, PipelineFailure>.Failed(initFailure);
+                return Result.Failed<PipelineFailure>(initFailure);
             }
 
             var baseline = await client
@@ -110,11 +108,11 @@ public static class BaselineExecution
             if (baseline.Response is not WorkerResponse.Baselined baselined)
             {
                 var reason = baseline.Response is WorkerResponse.Failed(var error) ? error : "baseline に応答がない";
-                return Failure<WorkerResponse.Baselined>(reason);
+                return Failure(reason);
             }
 
             await client.SendAsync(new WorkerRequest.Shutdown(), TimeSpan.FromSeconds(10)).ConfigureAwait(false);
-            return new Result<WorkerResponse.Baselined, PipelineFailure>.Succeeded(baselined);
+            return Result.Succeeded(baselined);
         }
         finally
         {
@@ -145,9 +143,9 @@ public static class BaselineExecution
         };
     }
 
-    /// <summary>worker 失敗の Result への包み</summary>
-    private static Result<TValue, PipelineFailure>.Failed Failure<TValue>(string reason) =>
-        new(new PipelineFailure.WorkerFailed(reason));
+    /// <summary>worker 失敗の case の構築</summary>
+    private static Failed<PipelineFailure> Failure(string reason) =>
+        Result.Failed<PipelineFailure>(new PipelineFailure.WorkerFailed(reason));
 
     /// <summary>テストの一意識別子の lane 数への輪番分割</summary>
     private static IReadOnlyList<string>[] Shard(IReadOnlyList<string> ids, int lanes) =>

@@ -3,7 +3,7 @@ using TypeModeling.Domain;
 namespace Mutation.Shared;
 
 /// <summary>実行を継続できない想定内の失敗</summary>
-[ClosedUnion]
+[Closed]
 public abstract record PipelineFailure
 {
     /// <summary>列挙した派生以外の失敗を塞ぐ基底の構築</summary>

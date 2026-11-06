@@ -4,7 +4,7 @@ using TypeModeling.Domain;
 namespace Mutation.Verifying.Domain;
 
 /// <summary>実行中の進行を伝える出来事</summary>
-[ClosedUnion]
+[Closed]
 public abstract record RunProgress
 {
     /// <summary>列挙した派生以外の出来事を塞ぐ基底の構築</summary>

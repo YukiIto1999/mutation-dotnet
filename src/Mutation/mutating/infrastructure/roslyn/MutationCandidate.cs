@@ -9,7 +9,7 @@ namespace Mutation.Mutating.Infrastructure.Roslyn;
 /// <param name="OperatorName">候補を生成した演算子の名前</param>
 /// <param name="ReplacementText">報告に載せる変異後のコード断片</param>
 /// <param name="InStaticContext">static 初期化文脈にあるか</param>
-[ClosedUnion]
+[Closed]
 public abstract record MutationCandidate(
     SyntaxNode Target,
     string OperatorName,

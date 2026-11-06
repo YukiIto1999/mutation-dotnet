@@ -4,7 +4,7 @@ using TypeModeling.Domain;
 namespace Mutation.Verifying.Domain;
 
 /// <summary>対象一件の検査の帰結</summary>
-[ClosedUnion]
+[Closed]
 public abstract record TargetOutcome
 {
     /// <summary>列挙した派生以外の帰結を塞ぐ基底の構築</summary>

@@ -19,22 +19,22 @@ public sealed class GenerateMutants(IMutationCompilation compilation, IChangeSet
         if (selection.SinceRef is { Length: > 0 } sinceRef)
         {
             var resolved = changeSets.Resolve(Path.GetDirectoryName(projectPath) ?? ".", sinceRef);
-            if (resolved is Result<ChangedLines, PipelineFailure>.Failed(var sinceFailure))
+            if (resolved.IsFailed(out var sinceFailure, out var resolvedChanges))
             {
-                return new Result<ChangedLines?, PipelineFailure>.Failed(sinceFailure);
+                return sinceFailure;
             }
 
-            changes = ((Result<ChangedLines, PipelineFailure>.Succeeded)resolved).Value;
+            changes = resolvedChanges;
         }
 
         if (selection.ChangedLinesOnly && changes is null)
         {
-            return new Result<ChangedLines?, PipelineFailure>.Failed(
+            return Result.Failed<PipelineFailure>(
                 new PipelineFailure.SinceUnavailable("--changed-lines には --since が必要")
             );
         }
 
-        return new Result<ChangedLines?, PipelineFailure>.Succeeded(changes);
+        return Result.Succeeded<ChangedLines?>(changes);
     }
 
     /// <summary>選別入力と解決済みの差分から方針を組み、変異 assembly 一式を生成する遂行</summary>

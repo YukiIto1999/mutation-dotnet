@@ -17,9 +17,7 @@ public sealed class RecordedReports : IRecordedReports
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            return new Result<RecordedReport, PipelineFailure>.Failed(
-                new PipelineFailure.ReportUnreadable(reportPath, exception.Message)
-            );
+            return Result.Failed<PipelineFailure>(new PipelineFailure.ReportUnreadable(reportPath, exception.Message));
         }
 
         return StrykerReport.Parse(json, reportPath);

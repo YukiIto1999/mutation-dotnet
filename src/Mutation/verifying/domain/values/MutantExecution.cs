@@ -3,7 +3,7 @@ using TypeModeling.Domain;
 namespace Mutation.Verifying.Domain;
 
 /// <summary>変異一件をどの実行形で検査するか</summary>
-[ClosedUnion]
+[Closed]
 public abstract record MutantExecution
 {
     /// <summary>列挙した派生以外の実行形を塞ぐ基底の構築</summary>

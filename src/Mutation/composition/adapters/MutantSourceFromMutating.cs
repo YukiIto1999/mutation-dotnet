@@ -31,17 +31,11 @@ internal sealed class MutantSourceFromMutating(
             .Select(t => new TargetProjects(t.ProjectPath, t.TestProjectPath, t.Configuration))
             .ToArray();
         var located = await prepareTarget.ExecuteAsync(projects, workDirectory).ConfigureAwait(false);
-        if (
-            located
-            is Result<IReadOnlyList<Result<PreparedProject, PipelineFailure>>, PipelineFailure>.Failed(var failure)
-        )
+        if (located.IsFailed(out var failure, out var projectResults))
         {
-            return new Result<IReadOnlyList<Result<PreparedTarget, PipelineFailure>>, PipelineFailure>.Failed(failure);
+            return failure;
         }
 
-        var projectResults = (
-            (Result<IReadOnlyList<Result<PreparedProject, PipelineFailure>>, PipelineFailure>.Succeeded)located
-        ).Value;
         var mutationSelection = new MutationSelection(
             selection.MutatePatterns,
             selection.SinceRef,
@@ -55,7 +49,7 @@ internal sealed class MutantSourceFromMutating(
             results.Add(Describe(target, project, mutationSelection, fingerprintSettings));
         }
 
-        return new Result<IReadOnlyList<Result<PreparedTarget, PipelineFailure>>, PipelineFailure>.Succeeded(results);
+        return Result.Succeeded<IReadOnlyList<Result<PreparedTarget, PipelineFailure>>>(results);
     }
 
     /// <summary>対象一件の準備の結果の写し。成功なら差分の解決と生成入力の控えと指紋の算出</summary>
@@ -66,21 +60,19 @@ internal sealed class MutantSourceFromMutating(
         string? fingerprintSettings
     )
     {
-        if (project is Result<PreparedProject, PipelineFailure>.Failed failed)
+        if (project.IsFailed(out var projectFailure, out var value))
         {
-            return new Result<PreparedTarget, PipelineFailure>.Failed(failed.Failure);
+            return projectFailure;
         }
 
         var resolved = generateMutants.ResolveChanges(selection, target.ProjectPath);
-        if (resolved is Result<ChangedLines?, PipelineFailure>.Failed(var changeFailure))
+        if (resolved.IsFailed(out var changeFailure, out var changes))
         {
-            return new Result<PreparedTarget, PipelineFailure>.Failed(changeFailure);
+            return changeFailure;
         }
 
-        var value = ((Result<PreparedProject, PipelineFailure>.Succeeded)project).Value;
-        var changes = ((Result<ChangedLines?, PipelineFailure>.Succeeded)resolved).Value;
         prepared[target.ProjectPath] = new GenerationInput(value.Sut, selection, changes);
-        return new Result<PreparedTarget, PipelineFailure>.Succeeded(
+        return Result.Succeeded(
             new PreparedTarget(
                 target,
                 value.TestAssembly,
@@ -97,13 +89,12 @@ internal sealed class MutantSourceFromMutating(
             ? found
             : throw new InvalidOperationException("PrepareAsync の成功が先に要る");
         var compiled = generateMutants.Execute(input.Sut, input.Selection, input.Changes, mutatedDirectory);
-        if (compiled is Result<MutatedArtifact, PipelineFailure>.Failed(var failure))
+        if (compiled.IsFailed(out var failure, out var artifact))
         {
-            return new Result<GeneratedMutants, PipelineFailure>.Failed(failure);
+            return failure;
         }
 
-        var artifact = ((Result<MutatedArtifact, PipelineFailure>.Succeeded)compiled).Value;
-        return new Result<GeneratedMutants, PipelineFailure>.Succeeded(
+        return Result.Succeeded(
             new GeneratedMutants(
                 artifact.Mutants,
                 artifact.CompileErrorIds,

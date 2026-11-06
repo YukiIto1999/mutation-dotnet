@@ -1,10 +1,8 @@
 
 
 
-using Mutation.Shared;
 using Mutation.Verifying.Domain;
 using Mutation.Composition;
-using TypeModeling.Domain;
 
 namespace Mutation.Cli.Commands;
 
@@ -71,13 +69,12 @@ public static class RunCommand
             .Create()
             .RunAsync(options, p => Console.Error.WriteLine(ProgressLines.Describe(p)))
             .ConfigureAwait(false);
-        if (outcome is Result<MutationRunResult, PipelineFailure>.Failed(var failure))
+        if (outcome.IsFailed(out var failed, out var result))
         {
-            await Console.Error.WriteLineAsync(FailureLines.Describe(failure)).ConfigureAwait(false);
+            await Console.Error.WriteLineAsync(FailureLines.Describe(failed.Failure)).ConfigureAwait(false);
             return 1;
         }
 
-        var result = ((Result<MutationRunResult, PipelineFailure>.Succeeded)outcome).Value;
         await Console.Out.WriteAsync(ConsoleSummary.Render(result)).ConfigureAwait(false);
         return await ExitCodeAsync(result, breakAt).ConfigureAwait(false);
     }

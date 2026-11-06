@@ -80,14 +80,12 @@ public static class StrykerReport
                     .EnumerateArray()
                     .Select(mutant => Recorded(Path.GetFullPath(Path.Combine(projectRoot, file.Name)), mutant)))
                 .ToArray();
-            return new Result<RecordedReport, PipelineFailure>.Succeeded(new RecordedReport(projectRoot, mutants));
+            return Result.Succeeded(new RecordedReport(projectRoot, mutants));
         }
         catch (Exception exception)
             when (exception is JsonException or KeyNotFoundException or InvalidOperationException or FormatException)
         {
-            return new Result<RecordedReport, PipelineFailure>.Failed(
-                new PipelineFailure.ReportUnreadable(reportPath, exception.Message)
-            );
+            return Result.Failed<PipelineFailure>(new PipelineFailure.ReportUnreadable(reportPath, exception.Message));
         }
     }
 

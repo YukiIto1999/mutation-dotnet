@@ -27,11 +27,11 @@ public static class SchemataEmission
             var errors = result
                 .Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)
                 .ToList();
-            return new Result<string, IReadOnlyList<Diagnostic>>.Failed(errors);
+            return Result.Failed<IReadOnlyList<Diagnostic>>(errors);
         }
 
         File.WriteAllBytes(outputPath, stream.ToArray());
-        return new Result<string, IReadOnlyList<Diagnostic>>.Succeeded(outputPath);
+        return Result.Succeeded(outputPath);
     }
 
     /// <summary>書換後のソース一式の診断用の書き出し</summary>
