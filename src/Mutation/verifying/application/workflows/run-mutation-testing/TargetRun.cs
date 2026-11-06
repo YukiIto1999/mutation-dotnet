@@ -31,7 +31,7 @@ internal sealed class TargetRun(
         session.Clock.StartPhase();
         if (session.Request.WithBaseline && TryRebuild(session, layout, target) is { } reused)
         {
-            return new Result<TargetResult, PipelineFailure>.Succeeded(reused);
+            return Result.Succeeded(reused);
         }
 
         return await MutateAndTestAsync(session, layout, target).ConfigureAwait(false);
@@ -63,12 +63,11 @@ internal sealed class TargetRun(
     )
     {
         var compiled = mutantSource.Generate(target, layout.MutatedDirectory);
-        if (compiled is Result<GeneratedMutants, PipelineFailure>.Failed(var compileFailure))
+        if (compiled.IsFailed(out var compileFailure, out var artifact))
         {
-            return new Result<TargetResult, PipelineFailure>.Failed(compileFailure);
+            return compileFailure;
         }
 
-        var artifact = ((Result<GeneratedMutants, PipelineFailure>.Succeeded)compiled).Value;
         session.Progress(
             new RunProgress.MutantsGenerated(
                 artifact.Mutants.Count,
@@ -100,12 +99,11 @@ internal sealed class TargetRun(
         var observed = await workerRuns
             .ObserveAsync(launch, session.Request.Execution.Concurrency)
             .ConfigureAwait(false);
-        if (observed is Result<BaselineProfile, PipelineFailure>.Failed(var baselineFailure))
+        if (observed.IsFailed(out var baselineFailure, out var baseline))
         {
-            return new Result<TargetResult, PipelineFailure>.Failed(baselineFailure);
+            return baselineFailure;
         }
 
-        var baseline = ((Result<BaselineProfile, PipelineFailure>.Succeeded)observed).Value;
         var baselineMs = session.Clock.EndPhase();
         session.Progress(
             new RunProgress.BaselineCompleted(
@@ -130,7 +128,7 @@ internal sealed class TargetRun(
                 )
             )
             .ConfigureAwait(false);
-        return new Result<TargetResult, PipelineFailure>.Succeeded(
+        return Result.Succeeded(
             new TargetResult(
                 layout.TargetName,
                 artifact.Mutants,

@@ -3,7 +3,7 @@ using TypeModeling.Domain;
 namespace Mutation.Verifying.Domain;
 
 /// <summary>変異一件に対する検査の確定結果</summary>
-[ClosedUnion]
+[Closed]
 public abstract record MutantVerdict
 {
     /// <summary>列挙した派生以外の結果を塞ぐ基底の構築</summary>

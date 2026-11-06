@@ -16,20 +16,17 @@ public sealed class JudgeChangedLines(IRecordedReports reports, IChangedLines ch
     public Result<ChangedLineVerdicts, PipelineFailure> Execute(string reportPath, string sinceRef)
     {
         var read = reports.Read(reportPath);
-        if (read is Result<RecordedReport, PipelineFailure>.Failed(var readFailure))
+        if (read.IsFailed(out var readFailure, out var report))
         {
-            return new Result<ChangedLineVerdicts, PipelineFailure>.Failed(readFailure);
+            return readFailure;
         }
 
-        var report = ((Result<RecordedReport, PipelineFailure>.Succeeded)read).Value;
         var resolved = changes.Resolve(report.ProjectRoot, sinceRef);
-        if (resolved is Result<ChangedLines, PipelineFailure>.Failed(var diffFailure))
+        if (resolved.IsFailed(out var diffFailure, out var changedLines))
         {
-            return new Result<ChangedLineVerdicts, PipelineFailure>.Failed(diffFailure);
+            return diffFailure;
         }
 
-        return new Result<ChangedLineVerdicts, PipelineFailure>.Succeeded(
-            ChangedLineVerdicts.Select(report.Mutants, ((Result<ChangedLines, PipelineFailure>.Succeeded)resolved).Value)
-        );
+        return Result.Succeeded(ChangedLineVerdicts.Select(report.Mutants, changedLines));
     }
 }

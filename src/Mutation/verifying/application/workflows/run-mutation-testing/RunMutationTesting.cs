@@ -42,24 +42,16 @@ public sealed class RunMutationTesting(
             .ConfigureAwait(false);
         var buildMs = clock.EndPhase();
         progress(new RunProgress.BuildCompleted(buildMs));
-        if (
-            located
-            is Result<IReadOnlyList<Result<PreparedTarget, PipelineFailure>>, PipelineFailure>.Failed(
-                var buildFailure
-            )
-        )
+        if (located.IsFailed(out var buildFailure, out var targets))
         {
-            return new Result<MutationRunResult, PipelineFailure>.Failed(buildFailure);
+            return buildFailure;
         }
 
-        var targets = (
-            (Result<IReadOnlyList<Result<PreparedTarget, PipelineFailure>>, PipelineFailure>.Succeeded)located
-        ).Value;
         var session = new PipelineSession(request, layout, progress, clock);
         var outcomes = await RunEachAsync(session, targets, TargetNames(request.Targets)).ConfigureAwait(false);
         var result = new MutationRunResult(outcomes, MutationRunResult.Aggregate(outcomes, buildMs, clock.TotalMs));
         reports.Write(result, ReportRoot(request.Targets), layout.ReportsDirectory);
-        return new Result<MutationRunResult, PipelineFailure>.Succeeded(result);
+        return Result.Succeeded(result);
     }
 
     /// <summary>対象を順に検査しての帰結の収集。一件の中断は残りの検査を妨げない形</summary>
@@ -86,23 +78,18 @@ public sealed class RunMutationTesting(
         string name
     )
     {
-        if (target is Result<PreparedTarget, PipelineFailure>.Failed prepareFailure)
+        if (target.IsFailed(out var prepareFailure, out var prepared))
         {
             return Abandon(session, name, prepareFailure.Failure, 0);
         }
 
-        var prepared = ((Result<PreparedTarget, PipelineFailure>.Succeeded)target).Value;
         var outcome = await targetRun.ExecuteAsync(session, prepared, name).ConfigureAwait(false);
-        return outcome switch
+        if (outcome.IsFailed(out var runFailure, out var completed))
         {
-            Result<TargetResult, PipelineFailure>.Succeeded succeeded => new TargetOutcome.Completed(succeeded.Value),
-            Result<TargetResult, PipelineFailure>.Failed failed => Abandon(
-                session,
-                name,
-                failed.Failure,
-                session.Clock.EndPhase()
-            ),
-        };
+            return Abandon(session, name, runFailure.Failure, session.Clock.EndPhase());
+        }
+
+        return new TargetOutcome.Completed(completed);
     }
 
     /// <summary>置き場と報告で対象を指す名前の決定。重複は連番の付加による一意化</summary>

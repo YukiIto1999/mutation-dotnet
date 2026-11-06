@@ -27,9 +27,8 @@ public sealed class RecordedReportFacts
 
         var parsed = StrykerReport.Parse(json, "report.json");
 
-        await Assert.That(parsed is Result<RecordedReport, PipelineFailure>.Succeeded).IsTrue();
-        var report = ((Result<RecordedReport, PipelineFailure>.Succeeded)parsed).Value;
-        await Assert.That(report.ProjectRoot).IsEqualTo("/repo");
+        await Assert.That(parsed.IsFailed(out _, out var report)).IsFalse();
+        await Assert.That(report!.ProjectRoot).IsEqualTo("/repo");
         await Assert.That(report.Mutants[0].FilePath).IsEqualTo(Path.GetFullPath("/repo/src/A.cs"));
         await Assert.That(report.Mutants[0].Span).IsEqualTo(new SourceSpan(5, 9, 6, 14));
         await Assert.That(report.Mutants[0].Verdict is MutantVerdict.Survived).IsTrue();
@@ -78,13 +77,14 @@ public sealed class RecordedReportFacts
     {
         var parsed = StrykerReport.Parse(json, "report.json");
 
-        await Assert.That(parsed is Result<RecordedReport, PipelineFailure>.Failed(PipelineFailure.ReportUnreadable))
+        await Assert.That(parsed.IsFailed(out var failed, out _) && failed.Failure is PipelineFailure.ReportUnreadable)
             .IsTrue();
     }
 
     /// <summary>読めない報告の失敗の理由。読めた場合や別の失敗なら不在</summary>
     private static string? ReasonOf(Result<RecordedReport, PipelineFailure> parsed) =>
-        parsed is Result<RecordedReport, PipelineFailure>.Failed(PipelineFailure.ReportUnreadable { Reason: var reason })
+        parsed.IsFailed(out var failed, out _)
+        && failed.Failure is PipelineFailure.ReportUnreadable { Reason: var reason }
             ? reason
             : null;
 

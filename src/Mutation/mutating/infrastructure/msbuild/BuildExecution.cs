@@ -66,9 +66,7 @@ public static class BuildExecution
         using var process = Process.Start(startInfo);
         if (process is null)
         {
-            return new Result<string, PipelineFailure>.Failed(
-                new PipelineFailure.BuildFailed("dotnet を起動できない")
-            );
+            return Result.Failed<PipelineFailure>(new PipelineFailure.BuildFailed("dotnet を起動できない"));
         }
 
         var output = new StringBuilder();
@@ -80,10 +78,10 @@ public static class BuildExecution
         {
             var text = output.ToString();
             var tail = text.Length <= 4000 ? text : text[^4000..];
-            return new Result<string, PipelineFailure>.Failed(new PipelineFailure.BuildFailed(tail));
+            return Result.Failed<PipelineFailure>(new PipelineFailure.BuildFailed(tail));
         }
 
-        return new Result<string, PipelineFailure>.Succeeded(binlogPath);
+        return Result.Succeeded(binlogPath);
     }
 
     /// <summary>build へ渡す入口の決定。対象が複数なら全テスト project を並べた solution を書き出す</summary>
