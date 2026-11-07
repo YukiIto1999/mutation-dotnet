@@ -21,6 +21,10 @@ README の制約事項に加えて、source から確かめられるものを置
 - worker は `Microsoft.NETCore.App` だけを framework として持つ。
   ASP.NET Core のような別の shared framework を参照するテスト assembly が動くかは、実測していない。
   所在は `Mutation.Worker/Mutation.Worker.csproj` である。
+- worker process の `TRUSTED_PLATFORM_ASSEMBLIES` は、worker の依存だけを列挙し、テスト assembly の依存を含まない。
+  この値からメタデータ参照を作るテストは、通常の実行と違う参照の集合を得る。
+  この差で、Roslyn を参照する source generator を test 内でコンパイルするテストが baseline で失敗することを、自己 mutation の実行で確かめた。
+  所在は `Mutation.Worker/Mutation.Worker.csproj` と `Mutation.Worker/hosts/HostEnvironment.cs` の `Prepare` である。
 - 変異を一件も生成しなかった対象でも、baseline のテストを全件実行する。
   所在は `Mutation/verifying/application/workflows/run-mutation-testing/TargetRun.cs` の `MutateAndTestAsync` である。
 

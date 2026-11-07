@@ -22,6 +22,13 @@ public sealed class GeneratorExecutionFacts
         }
         """;
 
+    /// <summary>worker の暗黙参照に依存しない source generator のコンパイル用メタデータ参照</summary>
+    private static readonly IReadOnlyList<MetadataReference> GeneratorReferences = Snippet
+        .References.Append(MetadataReference.CreateFromFile(typeof(ISourceGenerator).Assembly.Location))
+        .OfType<PortableExecutableReference>()
+        .DistinctBy(reference => reference.FilePath, StringComparer.Ordinal)
+        .ToArray();
+
     /// <summary>analyzer 参照の generator が生成コードをコンパイルへ足すこと</summary>
     [Test]
     public async Task Generator_output_is_appended()
@@ -71,7 +78,7 @@ public sealed class GeneratorExecutionFacts
         var compilation = CSharpCompilation.Create(
             "MarkerGenerator",
             [CSharpSyntaxTree.ParseText(GeneratorSource)],
-            Snippet.References,
+            GeneratorReferences,
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
         );
         var directory = Directory.CreateTempSubdirectory("generator-facts").FullName;
