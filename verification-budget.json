@@ -2,5 +2,8 @@
   "version": 1,
   "verify": {
     "seconds": 120
+  },
+  "verify-push": {
+    "seconds": 900
   }
 }
