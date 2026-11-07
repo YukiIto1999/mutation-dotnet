@@ -51,10 +51,6 @@ public static class BaselineExecution
     )
     {
         var client = StartCoverageWorker(launch);
-        if (client is null)
-        {
-            return Failure("worker を起動できない");
-        }
 
         var init = await InitAsync(client, launch).ConfigureAwait(false);
         if (init is not null)
@@ -78,7 +74,7 @@ public static class BaselineExecution
                 new PipelineFailure.NoTestsFound(launch.TestAssemblyPath)
             ),
             WorkerResponse.Failed(var error) => Failure(error),
-            _ => Failure("discover に応答がない"),
+            _ => Failure($"discover に対する応答が不正: {discovered.Response}"),
         };
     }
 
@@ -90,10 +86,6 @@ public static class BaselineExecution
     )
     {
         var client = existing ?? StartCoverageWorker(launch);
-        if (client is null)
-        {
-            return Failure("worker を起動できない");
-        }
 
         try
         {
@@ -123,8 +115,10 @@ public static class BaselineExecution
         }
     }
 
-    /// <summary>被覆収集モードの worker の起動。失敗なら不在</summary>
-    private static WorkerClient? StartCoverageWorker(WorkerLaunchPlan launch) =>
+    /// <summary>被覆収集モードの worker の起動</summary>
+    /// <param name="launch">被覆を観測するテスト実行体の起動情報</param>
+    /// <returns>被覆収集モードで起動済みの worker</returns>
+    private static WorkerClient StartCoverageWorker(WorkerLaunchPlan launch) =>
         WorkerClient.Start(
             launch.WorkerDllPath,
             launch.ResultsDirectory,

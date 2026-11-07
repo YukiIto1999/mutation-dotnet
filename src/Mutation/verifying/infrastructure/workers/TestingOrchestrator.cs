@@ -83,15 +83,11 @@ public sealed class TestingOrchestrator : IDisposable
         }
     }
 
-    /// <summary>共有ホスト worker の起動と初期化。失敗なら不在</summary>
+    /// <summary>共有ホストの初期化と継続利用の可否の判定</summary>
+    /// <returns>初期化済みの worker または初期化失敗時の不在</returns>
     private async Task<WorkerClient?> StartSharedAsync()
     {
         var client = WorkerClient.Start(launch.WorkerDllPath, launch.ResultsDirectory);
-        if (client is null)
-        {
-            return null;
-        }
-
         var init = await client.SendAsync(WorkerRequests.Init(launch), TimeSpan.FromMinutes(2)).ConfigureAwait(false);
         if (init.Response is not WorkerResponse.Opened)
         {
@@ -102,7 +98,12 @@ public sealed class TestingOrchestrator : IDisposable
         return client;
     }
 
-    /// <summary>共有ホストでの一計画の実行と、時間切れ時の worker の作り直し</summary>
+    /// <summary>共有実行後の worker の継続可否の決定</summary>
+    /// <param name="client">指示を送る共有 worker</param>
+    /// <param name="plan">共有実行する変異とテスト列の計画</param>
+    /// <param name="isolated">新規 process で再判定する計画の追加先</param>
+    /// <param name="tally">確定した判定と worker 再起動の集計先</param>
+    /// <returns>後続の共有実行に使う worker または再起動が必要な場合の不在</returns>
     private async Task<WorkerClient?> RunSharedAsync(
         WorkerClient client,
         MutantPlan plan,
@@ -126,7 +127,14 @@ public sealed class TestingOrchestrator : IDisposable
         if (IsUnreached(completed, settled))
         {
             isolated.Enqueue(plan with { Execution = plan.Execution.ToIsolated() });
-            return settled is MutantVerdict.Killed ? await RestartAsync(client, tally).ConfigureAwait(false) : client;
+            if (settled is not MutantVerdict.Killed)
+            {
+                return client;
+            }
+
+            client.Dispose();
+            tally.CountRestart();
+            return null;
         }
 
         if (settled is MutantVerdict.Survived && plan.Execution is MutantExecution.ResidentThenIsolated)
@@ -143,12 +151,4 @@ public sealed class TestingOrchestrator : IDisposable
     /// <remarks>先行する検査が process 内に残した状態(memo、遅延初期化、static cache)が変異の経路を飛ばすか、汚れた状態がテストを落とした疑いがあり、新規 process で確かめ直す</remarks>
     private static bool IsUnreached(WorkerResponse.RunCompleted completed, MutantVerdict settled) =>
         completed.Reached == false && settled is MutantVerdict.Survived or MutantVerdict.Killed;
-
-    /// <summary>状態が壊れた疑いのある worker の破棄と、新しい共有 worker の起動</summary>
-    private async Task<WorkerClient?> RestartAsync(WorkerClient client, RunTally tally)
-    {
-        client.Dispose();
-        tally.CountRestart();
-        return await StartSharedAsync().ConfigureAwait(false);
-    }
 }

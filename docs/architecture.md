@@ -106,6 +106,7 @@ baseline は変異を全て不活性にした assembly でテストを一度実�
 baseline の被覆収集は、テスト数と `--concurrency` に応じて最大 `テスト数 / 8` の worker に分担できる。
 `BaselineExecution.cs` が分担し、テストが一件も見つからなければ `PipelineFailure.NoTestsFound` で対象を中断する。
 baseline で失敗したテストは以後の選択から除外する。
+複数 worker の観測の集計と不正な発見応答の拒否は、`tests/Mutation.Tests/verifying/BaselineExecutionFacts.cs` が実 process の worker を使って固定する。
 
 `verifying/domain/services/MutantScheduler.cs` が、被覆から変異ごとの実行計画を算出する。
 被覆するテストが無い変異は実行せず `NoCoverage` にする。
@@ -123,7 +124,9 @@ static 初期化の文脈にある変異と、テスト境界の外か static �
 振る舞いは `tests/Mutation.Tests/verifying/MutantSchedulerFacts.cs` が固定する。
 
 共有 worker が活性の変異の枝へ一度も到達しなかったことを `RunCompleted.Reached == false` で報告した場合、`TestingOrchestrator.cs` は生存・検出のどちらも新規 process で再判定する。
-この条件で検出を返した共有 worker は、破棄して作り直す。
+この条件で検出を返した共有 worker は破棄し、次の共有実行の直前に新しい worker を起動する。
+振る舞いは `tests/Mutation.Tests/verifying/TestingOrchestratorFacts.cs` が固定する。
+この検査は、本物の `WorkerClient` が `tests/Mutation.ScriptedWorker/` の実 process と往復し、判定・`WorkerRestarts`・worker process の残り方で確かめる。
 
 無限走行は probe の呼び出し回数の上限で即断する。
 上限は `verifying/domain/services/HitLimits.cs` が、実行するテストの baseline の probe 回数の最大値に 200 を掛けて 100,000 を足した値にする。
@@ -228,6 +231,7 @@ engine の `Result` と閉じた直和は、隣接 checkout の typemodeling-dot
 | 場所 | 内容 |
 |---|---|
 | `tests/Mutation.Tests/` | ユニットテストと構造検査 |
+| `tests/Mutation.ScriptedWorker/` | 台本どおりに応える worker。共有 worker と隔離 process の応答を決め、`TestingOrchestratorFacts.cs` が使う |
 | `tests/e2e/medium/` | 判定カテゴリ、三つのテスト基盤、変更行の判定を実 process で検証する fixture と script |
 | `tests/performance/` | 合成対象と実 project への測定 script |
 

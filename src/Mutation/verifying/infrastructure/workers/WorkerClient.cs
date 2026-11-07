@@ -53,8 +53,9 @@ public sealed class WorkerClient : IDisposable
     /// <param name="workerDllPath">worker の assembly の絶対 path</param>
     /// <param name="resultsDirectory">worker 内のテスト実行体が成果物を書く directory</param>
     /// <param name="environment">worker へ渡す追加の環境変数</param>
-    /// <returns>起動済みの worker。起動できなければ不在</returns>
-    public static WorkerClient? Start(
+    /// <returns>起動済みの worker</returns>
+    /// <exception cref="System.ComponentModel.Win32Exception">host 実行体の起動失敗</exception>
+    public static WorkerClient Start(
         string workerDllPath,
         string resultsDirectory,
         IReadOnlyDictionary<string, string>? environment = null
@@ -85,13 +86,8 @@ public sealed class WorkerClient : IDisposable
             startInfo.Environment[key] = value;
         }
 
-        var process = Process.Start(startInfo);
-        if (process is null)
-        {
-            requestPipe.Dispose();
-            responsePipe.Dispose();
-            return null;
-        }
+        var process = new Process { StartInfo = startInfo };
+        process.Start();
 
         requestPipe.DisposeLocalCopyOfClientHandle();
         responsePipe.DisposeLocalCopyOfClientHandle();

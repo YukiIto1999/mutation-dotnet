@@ -48,11 +48,6 @@ public sealed class IsolationRuns(WorkerLaunchPlan launch, TestRoster roster) : 
             [InjectionContract.HitLimitEnvironmentVariable] = HitLimits.For(roster, order).ToString(CultureInfo.InvariantCulture),
         };
         using var client = WorkerClient.Start(launch.WorkerDllPath, launch.ResultsDirectory, environment);
-        if (client is null)
-        {
-            return new IsolationOutcome(new MutantVerdict.TimedOut(), 0, stopwatch.Elapsed.TotalMilliseconds);
-        }
-
         var init = await client.SendAsync(WorkerRequests.Init(launch), TimeSpan.FromMinutes(2)).ConfigureAwait(false);
         if (init.Response is not WorkerResponse.Opened)
         {

@@ -18,7 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- Resident-worker outcomes are retried in a fresh process when the active mutant branch was never reached, whether the tests passed or failed. A failed resident run in this state also replaces the worker so later mutants do not reuse its state.
+- Resident-worker outcomes are retried in a fresh process when the active mutant branch was never reached, whether the tests passed or failed. A failed resident run in this state discards the worker; a replacement starts only when the next shared run needs one.
+- Unexpected worker replies during test discovery are identified in the failure diagnostic instead of being reported as a missing reply.
 
 ## [0.4.1] - 2026-10-02
 

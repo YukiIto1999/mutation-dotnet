@@ -63,11 +63,8 @@ public static class BuildExecution
         {
             startInfo.ArgumentList.Add("--no-incremental");
         }
-        using var process = Process.Start(startInfo);
-        if (process is null)
-        {
-            return Result.Failed<PipelineFailure>(new PipelineFailure.BuildFailed("dotnet を起動できない"));
-        }
+        using var process = new Process { StartInfo = startInfo };
+        process.Start();
 
         var output = new StringBuilder();
         var stdout = Drain(process.StandardOutput, output);

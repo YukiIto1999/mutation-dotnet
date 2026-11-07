@@ -6,5 +6,6 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Mutation.Tests/Mutation.Tests.csproj" />
+    <Project Path="tests/Mutation.ScriptedWorker/Mutation.ScriptedWorker.csproj" />
   </Folder>
 </Solution>
