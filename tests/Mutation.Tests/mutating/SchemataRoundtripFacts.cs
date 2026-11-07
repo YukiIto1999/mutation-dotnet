@@ -56,6 +56,24 @@ public sealed class SchemataRoundtripFacts
         await Assert.That(Invoke<int>(math, "Add", 2, 3)).IsEqualTo(5);
     }
 
+    /// <summary>活性の変異の枝へ入ったことだけを到達として記録し、取り出しで消去する規約</summary>
+    [Test]
+    public async Task Reached_reports_only_execution_of_the_active_branch()
+    {
+        var (assembly, _) = Snippet.EmitWithSchemata(Source);
+        var math = assembly.GetType("Sample.Math2")!;
+        var control = new SwitchControl(assembly);
+        control.Activate(0);
+        var beforeCall = control.TakeReached();
+        Invoke<int>(math, "Add", 2, 3);
+        var afterCall = control.TakeReached();
+        var afterTake = control.TakeReached();
+        control.Activate(-1);
+        await Assert.That(beforeCall).IsFalse();
+        await Assert.That(afterCall).IsTrue();
+        await Assert.That(afterTake).IsFalse();
+    }
+
     /// <summary>被覆収集モードでの probe の記録</summary>
     [Test]
     public async Task Coverage_mode_records_executed_probes()
@@ -138,5 +156,7 @@ public sealed class SchemataRoundtripFacts
         public void StartCoverage() => type.GetMethod("StartCoverage")!.Invoke(null, []);
 
         public int[] DrainHits() => (int[])type.GetMethod("DrainHits")!.Invoke(null, [])!;
+
+        public bool TakeReached() => (bool)type.GetMethod("TakeReached")!.Invoke(null, [])!;
     }
 }

@@ -114,13 +114,16 @@ baseline で失敗したテストは以後の選択から除外する。
 static 初期化の文脈にある変異と、テスト境界の外か static 初期化の区間で hit した変異は、隔離を必要とする候補として扱う。
 隔離は、環境変数 `MUTATION_ACTIVE` で事前に活性化した新規 process で実行する。
 新規 process が走らせるテストは、static 初期化の区間で hit したテスト、被覆テスト、同じファイルの変異を被覆するテスト、全ての passing テストの順で、それぞれ所要時間の昇順に並べる。
-通常の被覆テストがある変異は、共有の worker でその被覆テストを先に試し、生存したときだけ新規 process で確かめる。
+この隔離候補に通常の被覆テストがある場合は、共有の worker でその被覆テストを先に試し、生存したときに新規 process でも確かめる。
 実行形は閉じた直和 `MutantExecution` の `Resident`、`Isolated`、`ResidentThenIsolated` で表す。
 隔離実行の同時本数は `IsolationRuns.cs` が 2 本に絞る。
 `--exclude-static` を指定すると、構文上 static の文脈にある変異と、テスト境界の外か static 初期化の区間で hit した変異を、通常の被覆テストがあっても `Ignored` にして score の母数から外す。
 `--validate-survivors` を指定すると、今回の実行で `Survived` になった隔離でない変異を、`VerifyMutants.cs` が新規 process で再検証して結果を重ねる。
 前回から継承した `Survived` は、再検証の対象に入らない。
 振る舞いは `tests/Mutation.Tests/verifying/MutantSchedulerFacts.cs` が固定する。
+
+共有 worker が活性の変異の枝へ一度も到達しなかったことを `RunCompleted.Reached == false` で報告した場合、`TestingOrchestrator.cs` は生存・検出のどちらも新規 process で再判定する。
+この条件で検出を返した共有 worker は、破棄して作り直す。
 
 無限走行は probe の呼び出し回数の上限で即断する。
 上限は `verifying/domain/services/HitLimits.cs` が、実行するテストの baseline の probe 回数の最大値に 200 を掛けて 100,000 を足した値にする。

@@ -85,6 +85,7 @@ public sealed class XunitTestHost : ITestHost
         var sink = new MutantRunSink(accessor, failFast: true);
         controller.RunTests(cases, sink, executionOptions);
         sink.Finished.Wait();
+        var reached = accessor.TakeReached();
         if (!HostEnvironment.IsPreactivated)
         {
             accessor.Activate(-1, long.MaxValue);
@@ -94,7 +95,8 @@ public sealed class XunitTestHost : ITestHost
             RunOutcomes.From(sink.KillerTest, sink.HitLimitExceeded),
             sink.KillerTest,
             sink.ExecutedTests,
-            stopwatch.Elapsed.TotalMilliseconds
+            stopwatch.Elapsed.TotalMilliseconds,
+            reached
         );
     }
 

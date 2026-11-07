@@ -9,3 +9,4 @@ CLAUDE.md
 StrykerOutput/
 .mutation-output/
 /work/
+tests/performance/redesign/work/

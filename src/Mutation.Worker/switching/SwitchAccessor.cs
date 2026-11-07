@@ -23,6 +23,9 @@ public sealed class SwitchAccessor
     /// <summary>TakeHitLimitTripped への束ね</summary>
     private readonly Func<bool> takeHitLimitTripped;
 
+    /// <summary>活性の変異の枝へ入ったかの取り出しの束縛</summary>
+    private readonly Func<bool> takeReached;
+
     /// <summary>変異 assembly の切替クラスの発見と操作の束ね</summary>
     /// <param name="mutatedAssembly">MutantSwitch を含む変異 assembly</param>
     public SwitchAccessor(Assembly mutatedAssembly)
@@ -36,6 +39,7 @@ public sealed class SwitchAccessor
         drainStaticHits = Bind<Func<int[]>>(type, "DrainStaticHits");
         takeHitCount = Bind<Func<long>>(type, "TakeHitCount");
         takeHitLimitTripped = Bind<Func<bool>>(type, "TakeHitLimitTripped");
+        takeReached = Bind<Func<bool>>(type, "TakeReached");
     }
 
     /// <summary>指定した変異の活性化と probe 上限の設定</summary>
@@ -61,6 +65,10 @@ public sealed class SwitchAccessor
     /// <summary>probe 上限超過が起きたかの取り出しと消去</summary>
     /// <returns>前回の取り出し以降に上限超過が起きていれば真</returns>
     public bool TakeHitLimitTripped() => takeHitLimitTripped();
+
+    /// <summary>直前の活性化以後に活性の変異の枝へ入ったかの取り出しと消去</summary>
+    /// <returns>枝へ一度でも入ったなら真</returns>
+    public bool TakeReached() => takeReached();
 
     /// <summary>切替クラスの static method への delegate の束ね</summary>
     private static TDelegate Bind<TDelegate>(Type type, string name)

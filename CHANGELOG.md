@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `verify-full` appends its backlog to `work/backlog.md` instead of `docs/backlog.md`, and the manual medium benchmark writes to `work/performance/medium/` instead of `tests/performance/medium/work/`. Preserve existing local records under `work/` before rerunning the benchmark, which recreates its target and results directories.
 - Engine results now use TypeModeling's union-struct `Result` API, and closed hierarchies use `[Closed]`. Consumers of `BuildCore.RunAsync` and `BuildCore.OnChangedLines` must replace references to the removed nested `Succeeded` and `Failed` case types; `IsFailed` extracts the failure or success value without boxing.
 
+### Fixed
+
+- Resident-worker outcomes are retried in a fresh process when the active mutant branch was never reached, whether the tests passed or failed. A failed resident run in this state also replaces the worker so later mutants do not reuse its state.
+
 ## [0.4.1] - 2026-10-02
 
 ### Fixed

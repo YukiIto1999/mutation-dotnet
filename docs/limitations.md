@@ -27,7 +27,8 @@ README の制約事項に加えて、source から確かめられるものを置
 ## テストの実行
 
 - 既定の実行は共有の worker で、テスト間の static 状態の汚染を排除しない。
-  汚染の疑いは、`--validate-survivors` で、今回生存した変異を新規 process で再検証して確かめる。
+  活性の変異の枝への未到達を観測した生存・検出は新規 process で再判定するが、到達した場合の状態汚染は、この再判定の対象にならない。
+  `--validate-survivors` を指定すると、今回生存した隔離でない変異を新規 process で再検証する。
 - Microsoft.Testing.Platform の baseline は、テストごとに実行体の entry point を呼ぶ。
   そのため baseline の所要時間は、テスト数に比例する呼び出しの固定費を含む。
   所在は `Mutation.Worker/platform/PlatformTestHost.cs` の `Baseline` である。

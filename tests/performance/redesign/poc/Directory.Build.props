@@ -1,0 +1,6 @@
+<Project>
+  <!-- PoC は計測用の単独 project であり、root の analyzer 構成と CPM を継承しない -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+</Project>
