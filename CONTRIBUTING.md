@@ -40,6 +40,7 @@ devenv が .NET SDK と検証入口を管理する。
 ## 検証
 
 検証は時間の予算で三段に分け、リポジトリの root で実行する。
+時間制限のある `verify` と `verify-push` の予算は、[`verification-budget.json`](verification-budget.json) に宣言する。
 
 | 入口 | 予算 | 実行する時点 | 中身 |
 | --- | --- | --- | --- |
