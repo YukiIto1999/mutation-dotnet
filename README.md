@@ -95,7 +95,7 @@ dotnet src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll changed-lines \
 
 Verification runs through devenv entries, split by time budget:
 
-- `devenv shell verify` (within the 120-second budget declared in [verification-budget.json](verification-budget.json), before every commit) builds the solution with every analyzer warning as an error, including cognitive complexity (SonarAnalyzer S3776, threshold 15), and runs the unit tests.
+- `devenv shell verify` (within the 120-second budget declared in [tiergate.json](tiergate.json), before every commit) builds the solution with every analyzer warning as an error, including cognitive complexity (SonarAnalyzer S3776, threshold 15), and runs the unit tests.
 - `devenv shell verify-push` (within 15 minutes, before every push) runs `verify` and the end-to-end checks on the fixtures (verdict categories, the three test frameworks, the changed-line gate). It runs no mutation testing on mutation-dotnet's own engine.
 - `devenv shell verify-full` (no budget, not a gate, before every release) runs `regression-full` and then `mutation-full` as two separate runs, and exits with the status of `regression-full`.
 - `devenv shell regression-full` (no budget) runs `verify` and the end-to-end checks without narrowing them to a change, keeps its exit status and failed stages under `.mutation-output/regression-full/`, and appends failed stages that the previous run did not report to `work/backlog.md`, an ignored working ledger.
