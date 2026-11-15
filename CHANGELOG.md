@@ -16,12 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `verify-full` appends its backlog to `work/backlog.md` instead of `docs/backlog.md`, and the manual medium benchmark writes to `work/performance/medium/` instead of `tests/performance/medium/work/`. Preserve existing local records under `work/` before rerunning the benchmark, which recreates its target and results directories.
 - `verify-push` no longer runs changed-line mutation or the `changed-lines` gate on the engine itself, so no mutation result decides a push. `verify-full` now runs the new `regression-full` entry (`verify` and the end-to-end checks, without narrowing them to a change) and then the new `mutation-full` entry (whole-engine mutation, recorded in `work/backlog.md` as before) as two separate runs, and exits with the status of `regression-full`.
 - Engine results now use TypeModeling's union-struct `Result` API, and closed hierarchies use `[Closed]`. Consumers of `BuildCore.RunAsync` and `BuildCore.OnChangedLines` must replace references to the removed nested `Succeeded` and `Failed` case types; `IsFailed` extracts the failure or success value without boxing.
+- The `verify` and `verify-push` time budgets are declared in `tiergate.json` at the repository root. The declaration file was renamed and its keys are unchanged.
 
 ### Fixed
 
 - Resident-worker outcomes are retried in a fresh process when the active mutant branch was never reached, whether the tests passed or failed. A failed resident run in this state discards the worker; a replacement starts only when the next shared run needs one.
 - Unexpected worker replies during test discovery are identified in the failure diagnostic instead of being reported as a missing reply.
-- The existing 15-minute `verify-push` budget is declared in `verification-budget.json` so the managed pre-push hook can resolve and execute the repository's verification entry.
+- The existing 15-minute `verify-push` budget is declared in `tiergate.json` so the managed pre-push hook can resolve and execute the repository's verification entry.
 
 ## [0.4.1] - 2026-10-02
 
