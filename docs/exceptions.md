@@ -8,7 +8,7 @@
 
 ## task の正本を Nx に置かない
 
-- 現在の事実として、`verify`、`verify-push`、`verify-full` は `devenv.nix` の `scripts` に定義している。
+- 現在の事実として、`verify`、`verify-push`、`verify-full`、`regression-full`、`mutation-full` は `devenv.nix` の `scripts` に定義している。
 - 置き換える標準の規律は、`tools/build/nx.md` の「task の正本」である。
 - 採用経緯の一次資料と、Nx を導入できない技術的制約は、今回確認できていない。
   現在の入口と実行内容の正本は `devenv.nix` と CONTRIBUTING.md である。
