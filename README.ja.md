@@ -114,13 +114,16 @@ dotnet src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll changed-lines \
 
 ## 開発
 
-検証は、時間の予算で分けた devenv の三つの入口で行う。
+検証は、時間の予算で分けた devenv の入口で行う。
 
 - `devenv shell verify`(2 分以内、commit の前)は、analyzer の警告をエラー扱いにした build と、ユニットテストを実行する。
   build は関数の認知的複雑度(SonarAnalyzer の S3776、上限 15)も判定する。
-- `devenv shell verify-push`(15 分以内、push の前)は、`verify`、フィクスチャへの E2E 検証(判定カテゴリ、3 つのテスト基盤、変更行の判定)、自身のエンジンへの push の基点からの変更行の判定を実行する。
-  変更した行に生存または未被覆の mutant が一件でもあれば失敗する。
-- `devenv shell verify-full`(予算なし、gate にしない、release の前)は、E2E 検証とエンジン全量の mutation testing を実行し、前回の全量に無かった失敗と未検出 mutant を、追跡外の作業台帳 `work/backlog.md` へ追記する。
+- `devenv shell verify-push`(15 分以内、push の前)は、`verify` と、フィクスチャへの E2E 検証(判定カテゴリ、3 つのテスト基盤、変更行の判定)を実行する。
+  自身のエンジンへの mutation testing は実行しない。
+- `devenv shell verify-full`(予算なし、gate にしない、release の前)は、`regression-full` の後に `mutation-full` を別の走行で実行し、終了 status は `regression-full` のものにする。
+- `devenv shell regression-full`(予算なし)は、`verify` と E2E 検証を変更で絞らず全て実行し、終了 status と失敗した段を `.mutation-output/regression-full/` へ残し、前回に無かった失敗した段を、追跡外の作業台帳 `work/backlog.md` へ追記する。
+- `devenv shell mutation-full`(予算なし)は、エンジン全量の mutation testing を分析として実行し、生の終了 status を `.mutation-output/full/exit-status` へ残し、前回の分析に無かった失敗と未検出 mutant を `work/backlog.md` へ追記する。
+  全量回帰の結果は変えない。
 
 ブランチ・コミット・リリースの規約は [CONTRIBUTING.md](CONTRIBUTING.md) に、版の記録は [CHANGELOG.md](CHANGELOG.md) にある。
 

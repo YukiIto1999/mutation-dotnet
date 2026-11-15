@@ -45,8 +45,13 @@ devenv が .NET SDK と検証入口を管理する。
 | 入口 | 予算 | 実行する時点 | 中身 |
 | --- | --- | --- | --- |
 | `devenv shell verify` | 2 分 | commit の前、agent が作業を止める前 | 警告 0 の build(S3776 の認知的複雑度 15 を含む)とユニットテスト |
-| `devenv shell verify-push` | 15 分 | push の前(作業機の pre-push hook が起動) | `verify`、E2E 検証、push の基点から変わった行の mutation。変わった行の未検出 mutant が 0 件であること |
-| `devenv shell verify-full` | なし | release の準備の前 | E2E 検証と全量の mutation。gate にせず、前回から増えた失敗と未検出 mutant を `work/backlog.md` へ追記する |
+| `devenv shell verify-push` | 15 分 | push の前(作業機の pre-push hook が起動) | `verify` と E2E 検証。mutation は実行せず、mutation の結果で合否を決めない |
+| `devenv shell verify-full` | なし | release の準備の前 | `regression-full` の後に `mutation-full` を別の走行で実行する。gate にせず、終了 status は `regression-full` のもの |
+| `devenv shell regression-full` | なし | `verify-full` の一段として、または単独で | 全量回帰。`verify` と E2E 検証を影響範囲で絞らず全て実行する。終了 status と失敗した段を `.mutation-output/regression-full/` へ残し、失敗した段を `work/backlog.md` へ追記する |
+| `devenv shell mutation-full` | なし | `verify-full` の一段として、または単独で | 全量の mutation の分析。生の終了 status を `.mutation-output/full/exit-status` へ残し、前回から増えた失敗と未検出 mutant を `work/backlog.md` へ追記する。全量回帰の結果は変えない |
+
+mutation は検出力の分析であり、commit、push、release の合否を決めない。
+`regression-full` と `mutation-full` は上限、取消、終了 status を共有しない別の走行で、`verify-full` は両者を順に実行して `regression-full` の終了 status で終わる。
 
 予算を超えた段は失敗として扱い、より安い検証へ置き換えるか後の段へ移す。
 S3776 の既存違反は、`docs/conformance-baseline.json` の基線台帳に記録した member だけを、台帳の id を Justification に書いた `SuppressMessage` で抑止する。
@@ -67,7 +72,7 @@ README は英語を正本とし、README.ja は同じ変更で正本に合わせ
 読み手がいなくなった文書は、必要な情報を移してから取り除く。
 
 計画、調査、実験、下書き、作業台帳は、追跡されない `work/` に置く。
-`work/` は各 checkout に任意で存在する一時的な場所で、`devenv shell verify-full` が追記する `work/backlog.md` を含む。
+`work/` は各 checkout に任意で存在する一時的な場所で、`devenv shell verify-full`(`regression-full` と `mutation-full`)が追記する `work/backlog.md` を含む。
 追跡する文書は `work/` の内容に依存しない。
 作業が終わったら、保守に必要な意味を移してから、不要になった作業記録を取り除く。
 
@@ -80,7 +85,7 @@ commit の件名、実装コメント、ドキュメントコメントの日本�
 
 ## リリース
 
-1. `devenv shell verify-full` を実行し、`work/backlog.md` に追記された項目を確認する。
+1. `devenv shell verify-full` を実行し、全量回帰の終了 status と、`work/backlog.md` に追記された項目を確認する。
 2. `develop` で `CHANGELOG.md` に該当バージョンの節を追記する(セマンティックバージョニング)。
 3. `chore: X.Y.Z のリリースを準備` でコミットし `develop` へマージする。
 4. `main` を該当コミットへ進め、`vX.Y.Z` タグを付ける。
