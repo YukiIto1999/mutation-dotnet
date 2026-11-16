@@ -40,4 +40,8 @@ public abstract record MutantVerdict
 
     /// <summary>指定により検査対象から外された結果。score の母数の対象外</summary>
     public sealed record Ignored : MutantVerdict;
+
+    /// <summary>判定を確定できなかった結果。検出にも未検出にも数えず、score の母数に入れない</summary>
+    /// <param name="Cause">確定できなかった理由</param>
+    public sealed record Unjudged(UnjudgedCause Cause) : MutantVerdict;
 }

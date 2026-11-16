@@ -142,16 +142,44 @@ static 初期化の文脈にある変異と、テスト境界の外か static �
 無限走行は probe の呼び出し回数の上限で即断する。
 上限は `verifying/domain/services/HitLimits.cs` が、実行するテストの baseline の probe 回数の最大値に 200 を掛けて 100,000 を足した値にする。
 上限を超えると、注入クラスが目印付きの例外を投げて worker が `hitlimit` を返し、判定は `TimedOut` になる。
-probe を通らないループと、例外を握り潰す包括的な catch は、実行時間の予算に応答の猶予 5 秒を足した期限と worker の終了で捕らえる。
+probe を通らないループと、例外を握り潰す包括的な catch は、実行時間の予算に応答の猶予 5 秒(`RunDeadlines.cs`)を足した期限と worker の終了で捕らえる。
 `HitLimits` の値は `tests/Mutation.Tests/verifying/VerdictVocabularyFacts.cs` が固定する。
 
 判定は `verifying/infrastructure/workers/VerdictInterpretation.cs` が決める。
 baseline で成功したテストが失敗すれば `Killed`、全て成功すれば `Survived` になる。
 応答が無く worker が終了していれば `Killed` で、検出の経緯は `(process crash)` とする。
 応答が無く worker が生きている場合と、worker が `Failed` を返した場合は `TimedOut` になる。
+期限切れで止めた worker は、終了済みでも `Killed` でなく `TimedOut` として扱う(`WorkerExchange.DeadlineExpired`)。
+probe 上限の超過による `TimedOut` は時間によらないので、そのまま検出に数える。
 `Killed` と `TimedOut` は score の検出に数えられるので、worker の異常終了と失敗も検出に入る。
 Microsoft.Testing.Platform の run は killer test の名前を返さないため、`TerminalOutput.cs` が端末出力の `failed <名前> (<所要時間>)` の行から取り出し、取り出せなければ `(unknown test)` とする。
 `tests/Mutation.Tests/verifying/VerdictInterpretationFacts.cs` が固定する。
+
+期限切れの `TimedOut` は、競合で遅れただけの変異を検出に数えないよう、`TimeoutAdjudication.cs` が確かめ直す。
+期限は基準実行の所要時間から決めた固定の値なので、機が基準より遅ければ無限走行でない変異も超えるためである。
+超えた変異ごとに、変異のない同じテスト列を新規 process で走らせる対照の実行(`IsolationRuns.ControlAsync`)の所要時間が、その変異の予算に収まるかを `TimeoutJudgement.cs` が判定する。
+収まらないか終わらなければ、対照のテストさえ予算の外なので、`UnjudgedCause.ContendedTimeout` の未判定にし、検出にも未検出にも数えない。
+収まれば新規 process で変異をもう一度実行し、終われば再実行の判定を採り、また期限を超えたときだけ検出に数える `TimedOut` にする。
+Stryker.NET、StrykerJS、PIT は倍率と定数の固定の期限で超過をそのまま timeout とし、忙しい機への手当ては定数を人が大きくすることだけなので、この確かめ直しは持たない。
+費用は、期限を超えた変異ごとの新規 process 二本と再実行一回である。
+振る舞いは `tests/Mutation.Tests/verifying/TestingOrchestratorTimeoutFacts.cs` と `TimeoutJudgementFacts.cs` が固定する。
+
+## 取り消し
+
+`run` は `src/Mutation.Cli/commands/TerminationSignals.cs` で SIGHUP、SIGINT、SIGTERM を受け、最初の一回を取り消しの要求(`CancellationToken`)に変える。
+二度目の要求は既定の動作へ譲り、process を強制的に終える。
+要求は `RunMutationTesting.ExecuteAsync` から `TargetRun`、`VerifyMutants`、`IWorkerRuns` の `ExecutionControl` を通って、`TestingOrchestrator` と `WorkerClient` に届く。
+`WorkerClient.SendAsync` は、応答を待つ間に要求を受けると worker process を殺して返す。
+`TestingOrchestrator` は、要求の後に新しい変異へ取りかからず、実行中だった変異の結果を採らない。
+その結果を採ると、止めるために殺した worker の終了が `(process crash)` の検出になるためである。
+実行中だった変異は `UnjudgedCause.Interrupted`、取りかからなかった変異は `UnjudgedCause.NotRun` の未判定になり、`RunTally.Abandon` が記録する。
+`VerifyMutants` は確定した判定と未判定を保存に畳み、`RunMutationTesting` は止まった走行でも報告を書き出す。
+取り消しの要求を受けた後に始まる対象は、`PipelineFailure.Interrupted` で判定に至らなかった対象として記録する。
+baseline は worker を止めて失敗として返し、`TargetRun` が `Interrupted` に直す。
+build と変異の生成は要求を受けても終えるまで走り、その後の段階の前で止まる。
+終了コードは `RunCommand.cs` が決め、取り消しで止まった走行は信号に対応する 129(SIGHUP)、130(SIGINT)、143(SIGTERM)である。
+SIGKILL は受け取れないので、止まった走行の判定は追記の記録(継承の節)だけが残す。
+振る舞いは `tests/Mutation.Tests/verifying/TestingOrchestratorCancellationFacts.cs` と `BaselineExecutionFacts.cs` が固定し、信号を受けた走行全体は `tests/e2e/medium/interruption/verify-interruption.sh` が固定する。
 
 ## 継承
 
@@ -172,9 +200,21 @@ Microsoft.Testing.Platform の run は killer test の名前を返さないた�
 この経路は生成入力の指紋と設定を照合せず、他のファイルの内容も照合しない。
 そのため、設定の変更や別のファイルの変更が継承する変異の意味を変えても、上の条件が一致すれば前回の判定を継承する。
 判定の合成は、今回の `CompileError`、`NoCoverage`、`Ignored` を先に置き、継承した判定、実行した判定の順に上書きする。
-所在は `verifying/application/workflows/verify-mutants/VerifyMutants.cs` の `MergedVerdicts` である。
+所在は `verifying/application/workflows/verify-mutants/VerdictMerge.cs` の `Merge` である。
 この上書きの順序が今回の分類に与える影響は、実行で確かめていない。
 `tests/Mutation.Tests/verifying/SnapshotReuseFacts.cs` と `SnapshotReconstructionFacts.cs` は、上の局所的な条件を固定するもので、依存の閉包の健全性までは保証しない。
+
+判定の確定ごとに、`SnapshotJournal.cs` が保存に並べた `work/<対象名>/snapshot.verdicts.jsonl` へ一行ずつ追記する。
+一行目は、実行の前に分かっている判定(即時確定と継承した判定)を持ち、これから実行する変異を未判定の `Pending` で置いた保存の全体である。
+二行目からは、確定した判定の一件ずつである。
+一行を書くたびに flush するので、process が殺されても書き終えた行は残る。
+次の実行では `SnapshotStore.Load` が、この記録があればそれを優先して保存を復元する(`SnapshotJournalReplay.cs`)。
+書き終える前に殺された最後の行は捨てる。
+走行が終わると `VerifyMutants` が最終の判定を保存し(`IVerdictJournal.Commit`)、記録を取り除く。
+`Pending` が残る保存は、生成入力の指紋と変異 assembly の hash を持たないので、全体の再構築に一致しない。
+`Pending` が前回の結果として再利用されることはなく、確定した判定だけが変異ごとの継承で次の実行に残り、残りの変異だけが実行される。
+`--detection-matrix` の実行は継承を使わないので、この記録から続きを実行することはできない。
+振る舞いは `tests/Mutation.Tests/verifying/SnapshotJournalFacts.cs` と `VerifyMutantsResumeFacts.cs` が固定する。
 
 ## 出力の配置
 
@@ -184,7 +224,7 @@ Microsoft.Testing.Platform の run は killer test の名前を返さないた�
 | 置き場 | 内容 |
 |---|---|
 | `work/` | 対象間で共有する build の中間物と binlog |
-| `work/<対象名>/` | 対象ごとの `snapshot.json` とテスト実行体の成果物 |
+| `work/<対象名>/` | 対象ごとの `snapshot.json`、走行の間だけ残る追記の記録 `snapshot.verdicts.jsonl`、テスト実行体の成果物 |
 | `mutated/<対象名>/` | 変異 assembly と、失敗時の `failed-sources/` |
 | `since/work/<対象名>/`、`since/mutated/<対象名>/` | `--since` を指定した実行の保存と変異 assembly |
 | `reports/` | 対象をまたいで一つの `mutation-report.json` と `timings.json` |
@@ -204,6 +244,11 @@ Microsoft.Testing.Platform の run は killer test の名前を返さないた�
 形式は `tests/Mutation.Tests/verifying/StrykerReportFacts.cs` が固定する。
 `reports/timings.json` は `TimingsReport.cs` が書き出し、`phases`、`counters`、`targets`、`mutants` を持つ。
 `phases` は build、mutate、compile、baseline、testing、total の段階別時間、`counters` は変異数、テスト数、score、worker の再起動回数、判定別件数、`targets` は対象別の内訳と中断、`mutants` は変異別の所要時間である。
+`mutation-report.json` と `timings.json` は、走行が全変異の判定を確定したかを `RunStateReport.cs` が組み立てる `run` に書く。
+`state` は `MutationRunResult.State` で、全件が確定していれば `completed`、取り消しで止まっていれば `interrupted`、競合で判定できなかった変異が残れば `unjudged` である。
+判定を確定できなかった変異は `MutantVerdict.Unjudged` で表し、報告の status は `Pending`、`statusReason` に理由を書く。
+検出にも未検出にも数えないので score の母数に入らず、`changed-lines` の判定は、未検出がなく未判定が残るときに合格と言わず失敗として返す。
+形式は `tests/Mutation.Tests/verifying/RunStateReportFacts.cs` が固定する。
 
 `changed-lines` command は、`run --since` が書いた報告を、`composition/adapters/ChangedLinesFromGit.cs` が返す変更行と突き合わせ、変わった行に重なる未検出の mutant を判定する。
 `Survived` と `NoCoverage` を未検出と数える。
@@ -247,8 +292,8 @@ engine の `Result` と閉じた直和は、隣接 checkout の typemodeling-dot
 | 場所 | 内容 |
 |---|---|
 | `tests/Mutation.Tests/` | ユニットテストと構造検査 |
-| `tests/Mutation.ScriptedWorker/` | 台本どおりに応える worker。共有 worker と隔離 process の応答を決め、`TestingOrchestratorFacts.cs` が使う |
-| `tests/e2e/medium/` | 判定カテゴリ、三つのテスト基盤、変更行の判定、検出行列を実 process で検証する fixture と script |
+| `tests/Mutation.ScriptedWorker/` | 台本どおりに応える worker。共有 worker と隔離 process の応答を決め、応答の前に待たせることも、応えないこともできる。`TestingOrchestratorFacts.cs` と `TestingOrchestratorCancellationFacts.cs` が使う |
+| `tests/e2e/medium/` | 判定カテゴリ、三つのテスト基盤、変更行の判定、検出行列、SIGTERM と SIGKILL で止めた走行を実 process で検証する fixture と script |
 | `tests/performance/` | 合成対象と実 project への測定 script |
 
 ## 保守の注意

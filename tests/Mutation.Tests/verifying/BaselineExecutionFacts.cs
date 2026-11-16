@@ -160,6 +160,26 @@ public sealed class BaselineExecutionFacts
         await Assert.That(execution.SurvivingProcesses).IsEmpty();
     }
 
+    /// <summary>baseline の途中で取り消すと、worker を止め、完了した基準観測を返さないことの検査</summary>
+    /// <returns>worker の終了まで含む非同期検査</returns>
+    [Test]
+    public async Task Cancelling_the_baseline_stops_the_workers_without_reporting_a_finished_observation()
+    {
+        using var run = new ScriptedWorkerRun(
+            new Dictionary<string, int> { [WorkerCall.DiscoverRequest] = ScriptedWorkerRun.NeverAnswers },
+            ScriptedWorkerRun.DiscoverAnswer(new WorkerResponse.Discovered(AllIds()))
+        );
+
+        var execution = await run.BaselineCancellingAsync(
+            Concurrency,
+            calls => calls.Any(call => call.Request == WorkerCall.DiscoverRequest)
+        );
+
+        await Assert.That(execution.Outcome.IsFailed(out _, out _)).IsTrue();
+        await Assert.That(execution.BaselineRuns()).IsEmpty();
+        await Assert.That(execution.SurvivingProcesses).IsEmpty();
+    }
+
     /// <summary>連番順と辞書順が一致するテスト識別子の組み立て</summary>
     /// <param name="test">0 起点のテスト連番</param>
     /// <returns>収集対象のテスト識別子</returns>

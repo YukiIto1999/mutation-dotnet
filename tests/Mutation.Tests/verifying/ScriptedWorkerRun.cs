@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Text.Json;
 using Mutation.Protocol;
+using Mutation.Shared;
+using Mutation.Verifying.Application;
 using Mutation.Verifying.Domain;
 using Mutation.Verifying.Infrastructure.Workers;
 
@@ -22,11 +24,20 @@ internal sealed class ScriptedWorkerRun : IDisposable
     /// <summary>Mutation.ScriptedWorker と共有する台本の file 名</summary>
     private const string ScriptFileName = "script.json";
 
+    /// <summary>Mutation.ScriptedWorker と共有する応答前の待ちの台本の file 名</summary>
+    private const string DelayFileName = "delays.json";
+
+    /// <summary>台本の待ちに指定する、殺されるまで応えない値</summary>
+    public const int NeverAnswers = -1;
+
     /// <summary>Mutation.ScriptedWorker と共有する受信記録の file 名</summary>
     private const string JournalFileName = "journal.log";
 
     /// <summary>終了を命じた worker の process が消えるのを待つ上限</summary>
     private static readonly TimeSpan ExitGrace = TimeSpan.FromSeconds(10);
+
+    /// <summary>取り消す時点に至るまで worker の指示を待つ上限</summary>
+    private static readonly TimeSpan ReachPatience = TimeSpan.FromSeconds(60);
 
     /// <summary>process の消滅を見る間隔</summary>
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(25);
@@ -39,6 +50,9 @@ internal sealed class ScriptedWorkerRun : IDisposable
 
     /// <summary>worker の起動情報</summary>
     private readonly WorkerLaunchPlan launch;
+
+    /// <summary>run 応答を待つ上限の決め方。期限を縮めた検査が置き換える</summary>
+    public RunDeadlines Deadlines { get; init; } = RunDeadlines.Standard;
 
     /// <summary>台本の書き込みと起動情報の組み立て</summary>
     /// <param name="script">指示のキーに対する応答の台本</param>
@@ -55,6 +69,23 @@ internal sealed class ScriptedWorkerRun : IDisposable
             directory
         );
     }
+
+    /// <summary>応答の前に待つ指示を持つ台本。待ちのキーは SharedKey などで作る</summary>
+    /// <param name="delaysMs">台本のキーから応答の前に待つ ms への対応。NeverAnswers なら応えない</param>
+    /// <param name="script">指示のキーに対する応答の台本</param>
+    public ScriptedWorkerRun(IReadOnlyDictionary<string, int> delaysMs, params (string Key, WorkerResponse Answer)[] script)
+        : this(script) =>
+        File.WriteAllText(Path.Combine(directory, DelayFileName), JsonSerializer.Serialize(delaysMs, Serializer));
+
+    /// <summary>共有の worker が変異の run に答える台本のキー</summary>
+    /// <param name="mutantId">変異の連番</param>
+    /// <returns>台本のキー</returns>
+    public static string SharedKey(int mutantId) => $"{WorkerCall.SharedMode}:{mutantId}";
+
+    /// <summary>隔離 process が変異の run に答える台本のキー。連番に負を渡すと、変異のない対照の run を指す</summary>
+    /// <param name="mutantId">変異の連番</param>
+    /// <returns>台本のキー</returns>
+    public static string IsolatedKey(int mutantId) => $"{WorkerCall.IsolatedMode}:{mutantId}";
 
     /// <summary>起動情報に載せたテスト assembly の path</summary>
     /// <value>worker の初期化へ渡すテスト実行体の path</value>
@@ -94,26 +125,87 @@ internal sealed class ScriptedWorkerRun : IDisposable
     public static (string Key, WorkerResponse Answer) BaselineFailure(string testId, string error) =>
         ($"{WorkerCall.BaselineRequest}:{testId}", new WorkerResponse.Failed(error));
 
+    /// <summary>worker が指示を受けた時点で取り消す、一本の lane での変異実行と worker の終了の観測</summary>
+    /// <param name="roster">連番順のテストの名簿</param>
+    /// <param name="reached">受信した指示の記録から、取り消す時点に至ったかを決める条件</param>
+    /// <param name="settled">判定が確定するたびに呼ぶ通知先</param>
+    /// <param name="plans">共有の計画を実行順に並べた変異計画</param>
+    /// <returns>判定と操作の記録および終了後の process の状態</returns>
+    public async Task<ScriptedExecution> ExecuteCancellingAsync(
+        TestRoster roster,
+        Func<IReadOnlyList<WorkerCall>, bool> reached,
+        Action<MutantId, MutantVerdict> settled,
+        params MutantPlan[] plans
+    )
+    {
+        using var cancellation = new CancellationTokenSource();
+        using var orchestrator = new TestingOrchestrator(launch, roster, _ => { }, detectionMatrix: false, Deadlines);
+        var running = orchestrator.ExecuteAsync(plans, concurrency: 1, new ExecutionControl(settled, cancellation.Token));
+        await CancelWhenAsync(cancellation, reached);
+        var result = await running;
+        var calls = await ReadJournalAsync();
+        return new ScriptedExecution(result, calls, await StillRunningAsync(calls.Select(call => call.Pid).Distinct().ToArray()));
+    }
+
+    /// <summary>実行の前に取り消し済みの token を渡した、変異実行と worker の終了の観測</summary>
+    /// <param name="roster">連番順のテストの名簿</param>
+    /// <param name="plans">共有の計画を実行順に並べた変異計画</param>
+    /// <returns>判定と操作の記録および終了後の process の状態</returns>
+    public async Task<ScriptedExecution> ExecuteAlreadyCancelledAsync(TestRoster roster, params MutantPlan[] plans)
+    {
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+        using var orchestrator = new TestingOrchestrator(launch, roster, _ => { }, detectionMatrix: false, Deadlines);
+        var result = await orchestrator.ExecuteAsync(plans, concurrency: 1, new ExecutionControl((_, _) => { }, cancellation.Token));
+        var calls = await ReadJournalAsync();
+        return new ScriptedExecution(result, calls, await StillRunningAsync(calls.Select(call => call.Pid).Distinct().ToArray()));
+    }
+
+    /// <summary>worker が指示を受けた時点で取り消す、基準観測の収集と worker の終了の観測</summary>
+    /// <param name="concurrency">同時に走らせる worker 数</param>
+    /// <param name="reached">受信した指示の記録から、取り消す時点に至ったかを決める条件</param>
+    /// <returns>基準観測の収集結果と操作の記録および終了後の process の状態</returns>
+    public async Task<ScriptedBaseline> BaselineCancellingAsync(int concurrency, Func<IReadOnlyList<WorkerCall>, bool> reached)
+    {
+        using var cancellation = new CancellationTokenSource();
+        var running = BaselineExecution.RunAsync(launch, concurrency, cancellation.Token);
+        await CancelWhenAsync(cancellation, reached);
+        var outcome = await running;
+        var calls = await ReadJournalAsync();
+        return new ScriptedBaseline(outcome, calls, await StillRunningAsync(calls.Select(call => call.Pid).Distinct().ToArray()));
+    }
+
     /// <summary>一本の lane での変異実行と worker の終了の観測</summary>
     /// <param name="roster">連番順のテストの名簿</param>
     /// <param name="plans">共有の計画を実行順に並べた変異計画</param>
     /// <returns>判定と操作の記録および終了後の process の状態</returns>
     public Task<ScriptedExecution> ExecuteAsync(TestRoster roster, params MutantPlan[] plans) =>
-        RunAsync(roster, detectionMatrix: false, plans);
+        RunAsync(roster, detectionMatrix: false, ExecutionControl.None, plans);
+
+    /// <summary>判定の確定ごとの通知を受ける一本の lane での変異実行と worker の終了の観測</summary>
+    /// <param name="roster">連番順のテストの名簿</param>
+    /// <param name="settled">判定が確定するたびに呼ぶ通知先</param>
+    /// <param name="plans">共有の計画を実行順に並べた変異計画</param>
+    /// <returns>判定と操作の記録および終了後の process の状態</returns>
+    public Task<ScriptedExecution> ExecuteSettlingAsync(
+        TestRoster roster,
+        Action<MutantId, MutantVerdict> settled,
+        params MutantPlan[] plans
+    ) => RunAsync(roster, detectionMatrix: false, new ExecutionControl(settled, CancellationToken.None), plans);
 
     /// <summary>検出行列を求める一本の lane での変異実行と worker の終了の観測</summary>
     /// <param name="roster">連番順のテストの名簿</param>
     /// <param name="plans">共有の計画を実行順に並べた変異計画</param>
     /// <returns>判定と行と操作の記録および終了後の process の状態</returns>
     public Task<ScriptedExecution> ExecuteDetectionMatrixAsync(TestRoster roster, params MutantPlan[] plans) =>
-        RunAsync(roster, detectionMatrix: true, plans);
+        RunAsync(roster, detectionMatrix: true, ExecutionControl.None, plans);
 
     /// <summary>基準観測の収集と worker の終了の観測</summary>
     /// <param name="concurrency">同時に走らせる worker 数</param>
     /// <returns>基準観測の収集結果と操作の記録および終了後の process の状態</returns>
     public async Task<ScriptedBaseline> BaselineAsync(int concurrency)
     {
-        var outcome = await BaselineExecution.RunAsync(launch, concurrency);
+        var outcome = await BaselineExecution.RunAsync(launch, concurrency, CancellationToken.None);
         var calls = await ReadJournalAsync();
         var surviving = await StillRunningAsync(calls.Select(call => call.Pid).Distinct().ToArray());
         return new ScriptedBaseline(outcome, calls, surviving);
@@ -125,12 +217,18 @@ internal sealed class ScriptedWorkerRun : IDisposable
     /// <summary>一本の lane での変異実行と記録と process の状態の回収</summary>
     /// <param name="roster">連番順のテストの名簿</param>
     /// <param name="detectionMatrix">変異ごとに全失敗の記録を求めるか</param>
+    /// <param name="control">実行に添える通知先</param>
     /// <param name="plans">共有の計画を実行順に並べた変異計画</param>
     /// <returns>判定と操作の記録および終了後の process の状態</returns>
-    private async Task<ScriptedExecution> RunAsync(TestRoster roster, bool detectionMatrix, MutantPlan[] plans)
+    private async Task<ScriptedExecution> RunAsync(
+        TestRoster roster,
+        bool detectionMatrix,
+        ExecutionControl control,
+        MutantPlan[] plans
+    )
     {
-        using var orchestrator = new TestingOrchestrator(launch, roster, _ => { }, detectionMatrix);
-        var result = await orchestrator.ExecuteAsync(plans, concurrency: 1);
+        using var orchestrator = new TestingOrchestrator(launch, roster, _ => { }, detectionMatrix, Deadlines);
+        var result = await orchestrator.ExecuteAsync(plans, concurrency: 1, control);
         var calls = await ReadJournalAsync();
         var surviving = await StillRunningAsync(calls.Select(call => call.Pid).Distinct().ToArray());
         return new ScriptedExecution(result, calls, surviving);
@@ -148,6 +246,28 @@ internal sealed class ScriptedWorkerRun : IDisposable
 
         var lines = await File.ReadAllLinesAsync(path);
         return lines.Select(WorkerCall.Parse).ToList();
+    }
+
+    /// <summary>worker が受けた指示が条件に至るまで待ってからの取り消し</summary>
+    /// <param name="cancellation">取り消しを発する元</param>
+    /// <param name="reached">受信した指示の記録から、取り消す時点に至ったかを決める条件</param>
+    /// <returns>取り消しを発したことを表す task</returns>
+    /// <exception cref="TimeoutException">条件に至らないまま待ちの上限を過ぎた状態</exception>
+    private async Task CancelWhenAsync(CancellationTokenSource cancellation, Func<IReadOnlyList<WorkerCall>, bool> reached)
+    {
+        var waited = Stopwatch.StartNew();
+        while (!reached(await ReadJournalAsync()))
+        {
+            if (waited.Elapsed > ReachPatience)
+            {
+                await cancellation.CancelAsync();
+                throw new TimeoutException("worker が条件の指示を受けなかった");
+            }
+
+            await Task.Delay(PollInterval, CancellationToken.None);
+        }
+
+        await cancellation.CancelAsync();
     }
 
     /// <summary>終了猶予を過ぎても存続する worker の特定</summary>

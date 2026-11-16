@@ -23,9 +23,10 @@ public static class ChangedLineSummary
             );
         }
 
+        var unjudged = verdicts.Unjudged.Count > 0 ? $"、判定を確定できなかったもの {verdicts.Unjudged.Count} 件" : "";
         builder.AppendLine(
             CultureInfo.InvariantCulture,
-            $"変わった行の変異 {verdicts.OnChangedLines.Count} 件のうち未検出 {verdicts.Undetected.Count} 件"
+            $"変わった行の変異 {verdicts.OnChangedLines.Count} 件のうち未検出 {verdicts.Undetected.Count} 件{unjudged}"
         );
         return builder.ToString();
     }

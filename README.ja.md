@@ -74,7 +74,7 @@ dotnet src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll run \
 | `--ignore-methods NAMES` | この呼び出しの中を変異させない method 名。例 `ConfigureAwait`。`,` 区切り |
 | `--validate-survivors` | 生存 mutant を新規プロセスで再検証 |
 | `--exclude-static` | static の文脈にある変異と、テストの外か static 初期化の最中に実行される変異を、通常のテストが被覆していても対象外にし、Ignored として報告 |
-| `--with-baseline` | 同じ出力先の同じ種類の前回実行の保存から、不変の mutant の判定を継承。全量の実行は全量の実行から、`--since` の実行は `--since` の実行から継承 |
+| `--with-baseline` | 同じ出力先の同じ種類の前回実行の保存から、不変の mutant の判定を継承。全量の実行は全量の実行から、`--since` の実行は `--since` の実行から継承。終わる前に止まった走行は確定した判定を残すので、同じ command で、判定のない mutant の続きを実行できる |
 | `--detection-matrix` | 最初の失敗で打ち切らず、mutant ごとに被覆する全テストを実行し、失敗した全テストを報告に記録する。判定は変わらない。前回の判定は継承しないので、`--with-baseline` は効かない |
 
 ## レポート
@@ -89,6 +89,41 @@ console 要約に加え、`<output>/reports/` へ 2 ファイルを書き出す�
 テストは表示名で示す。
 この指定では、Microsoft.Testing.Platform はテストを一件ずつ別の呼び出しで実行する。
 
+二つの報告は、走行が全 mutant の判定を確定したかを示す `run` を持つ。
+`state` は、全 mutant の判定が確定していれば `completed`、そうでなければ `interrupted` か `unjudged` である。
+`complete` は `completed` のときだけ真で、`unjudged` は判定のない mutant の件数、`unjudgedBy` はその理由別の内訳(`notRun`、`interrupted`、`contendedTimeout`)、`interruptedTargets` は判定に至らなかった対象の名前である。
+判定のない mutant は status が `Pending` で、`statusReason` を持つ。
+検出にも未検出にも数えないので、mutation score の母数に入らない。
+
+## 走行の中断
+
+`run` は `SIGINT`、`SIGTERM`、`SIGHUP` を受ける。
+最初の信号で走行を取り消し、実行中の worker を止め、新しい mutant に取りかからず、確定した判定を `run.state` を `interrupted` にして `mutation-report.json` と `timings.json` に書く。
+信号を受けたときに実行していた mutant と、取りかからなかった mutant は `Pending` で、`statusReason` がどちらかを示す。
+判定に至らなかった対象は `run.interruptedTargets` に載る。
+二度目の信号は、process を直ちに終える。
+build と mutant の生成は、取り消しの要求を受けても終えるまで走る。
+
+判定は確定するたびに `<output>/work/<target>/snapshot.verdicts.jsonl` にも追記するので、受け取れない `SIGKILL` で殺された走行も、確定した判定を残す。
+続きは同じ command に `--with-baseline` を付けて実行する。
+確定した判定を継承し、`Pending` の mutant だけを検査する。
+`--detection-matrix` の走行は継承しないので、この方法で続きを実行できない。
+
+| `run` の終了コード | 意味 |
+|---|---|
+| 0 | 全 mutant の判定が確定し、対象の失敗がなく、score が `--break-at` を満たす |
+| 1 | 対象が失敗した、または引数か build が誤っている |
+| 2 | mutation score が `--break-at` を下回った |
+| 129、130、143 | `SIGHUP`、`SIGINT`、`SIGTERM`(128 に信号番号を足した値)で止まり、途中の報告を書いた |
+| 3 | 走行は終わったが、判定のない mutant が残った(`run.state` が `unjudged`) |
+
+テストが予算の時間を超えた mutant は、すぐには検出に数えない。
+予算は基準実行の所要時間から決めた固定の値(被覆するテストの 2 倍に 2 秒と、猶予 5 秒)なので、基準より忙しい機でも超える。
+超えた後、mutant のない同じテストを新規 process で走らせ、その対照の実行も予算に収まらなければ、`Timeout` でなく `Pending` にして `unjudgedBy.contendedTimeout` へ数える。
+収まれば mutant を新規 process でもう一度実行し、終われば再実行の判定を採り、二度目も超えたときだけ `Timeout` とする。
+probe 回数の上限は時間によらないので、`Timeout` のままである。
+Stryker.NET、StrykerJS、PIT は固定の期限のままで、忙しい機には人が大きくする定数で対処する。
+
 ## 変更行の判定
 
 `run --since REF` は、ファイル単位で変異対象を絞る。
@@ -97,6 +132,7 @@ console 要約に加え、`<output>/reports/` へ 2 ファイルを書き出す�
 変わった行は、作業木と `REF` の差分の新しい側の行、未追跡ファイルの全行、`REF` から移動か改名したファイルの全行である。
 移動と改名は、削除と追加として扱う。
 status が `Survived` か `NoCoverage` の mutant を未検出と数え、変わった行の外の mutant は結果に入れない。
+変わった行の mutant が `Pending` なら未検出とは数えないが、合格とも言えないので、未検出がなければ `changed-lines` は 0 でなく 1 で終わる。
 変更ごとの実行で生成が 0 件なら成功し、全量の実行で生成が 0 件なら全量の検証入口が失敗する。
 
 push 前の検査の例を示す。
@@ -115,7 +151,7 @@ dotnet src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll changed-lines \
 | 終了コード | 意味 |
 |---|---|
 | 0 | 変わった行の mutant に未検出なし。変わった行に mutant が一件もない場合を含む |
-| 1 | 報告を読めない、または `REF` との差分を解決できない |
+| 1 | 報告を読めない、`REF` との差分を解決できない、または変わった行の mutant に `Pending` があり未検出がない |
 | 2 | 変わった行の mutant に未検出が一件以上。各件を `path:line:column status mutator: replacement` で出力 |
 
 ## 開発
@@ -124,7 +160,7 @@ dotnet src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll changed-lines \
 
 - `devenv shell verify`(2 分以内、commit の前)は、analyzer の警告をエラー扱いにした build と、ユニットテストを実行する。
   build は関数の認知的複雑度(SonarAnalyzer の S3776、上限 15)も判定する。
-- `devenv shell verify-push`(15 分以内、push の前)は、`verify` と、フィクスチャへの E2E 検証(判定カテゴリ、3 つのテスト基盤、変更行の判定、検出行列)を実行する。
+- `devenv shell verify-push`(15 分以内、push の前)は、`verify` と、フィクスチャへの E2E 検証(判定カテゴリ、3 つのテスト基盤、変更行の判定、検出行列、`SIGTERM` と `SIGKILL` で止めた走行)を実行する。
   自身のエンジンへの mutation testing は実行しない。
 - `devenv shell verify-full`(gate にしない、release の前)は、`regression-full` の後に `mutation-select` を、それぞれ [tiergate.json](tiergate.json) に宣言した上限で止まる別の走行で実行し、終了 status は `regression-full` のものにする。
 - `devenv shell regression-full`(15 分以内)は、`verify` と E2E 検証を変更で絞らず全て実行し、終了 status と失敗した段を `.mutation-output/regression-full/` へ残し、前回に無かった失敗した段を、追跡外の作業台帳 `work/backlog.md` へ追記する。

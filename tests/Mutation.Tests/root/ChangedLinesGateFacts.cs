@@ -141,6 +141,22 @@ public sealed partial class ChangedLinesGateFacts
             .IsTrue();
     }
 
+    /// <summary>変わった行の変異が Pending の報告で、未検出がなければ、合格にならず判定できない失敗になること</summary>
+    [Test]
+    public async Task Pending_mutant_on_a_changed_line_is_not_a_pass()
+    {
+        using var repo = await TempRepository.CreateAsync();
+        await repo.WriteAsync("src/A.cs", "one\ntwo\n");
+        var baseRef = await repo.CommitAllAsync();
+        await repo.WriteAsync("src/A.cs", "one\nchanged\n");
+        var report = await repo.WriteReportAsync(("src/A.cs", "A:2", 2, "Pending"), ("src/A.cs", "A:1", 1, "Survived"));
+
+        var outcome = BuildCore.Create().OnChangedLines(report, baseRef);
+
+        await Assert.That(outcome.IsFailed(out var failed, out _) && failed.Failure is PipelineFailure.UnjudgedOnChangedLines { Count: 1 })
+            .IsTrue();
+    }
+
     /// <summary>git が移動の前後を対にできるほど似た、語と行番号を並べた 10 行</summary>
     private static string NumberedLines(string word) =>
         string.Concat(Enumerable.Range(1, 10).Select(number => $"{word} {number}\n"));

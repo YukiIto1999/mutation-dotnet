@@ -35,19 +35,5 @@ public sealed class Snapshots : ISnapshots
     ) => SnapshotReuse.Inheritable(SnapshotStore.Load(snapshotPath), mutants, testAssemblyPath, coverage, roster);
 
     /// <inheritdoc />
-    public void Save(SnapshotSaveRequest request) =>
-        SnapshotStore.Save(
-            request.Mutants,
-            request.Verdicts,
-            request.Baseline.Tests,
-            request.Baseline.Coverage,
-            new SnapshotContext(
-                request.TestAssemblyPath,
-                request.Fingerprint,
-                request.MutatedAssemblyPath,
-                request.CompileErrorIds,
-                request.Baseline.Roster,
-                request.SnapshotPath
-            )
-        );
+    public IVerdictJournal Begin(SnapshotSaveRequest checkpoint) => new SnapshotJournal(checkpoint);
 }

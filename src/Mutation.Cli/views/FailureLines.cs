@@ -22,5 +22,8 @@ public static class FailureLines
             PipelineFailure.NoTestsFound noTests => $"{noTests.TestAssembly} からテストが見つからない",
             PipelineFailure.ReportUnreadable unreadable =>
                 $"{unreadable.ReportPath} を変異検査の報告として読めない: {unreadable.Reason}",
+            PipelineFailure.Interrupted => "取り消しを受けて止まった",
+            PipelineFailure.UnjudgedOnChangedLines unjudged =>
+                $"変わった行の変異 {unjudged.Count} 件の判定が確定しておらず、未検出の有無を決められない(途中で止まった走行か、競合で遅れた timeout の報告)",
         };
 }

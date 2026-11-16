@@ -58,12 +58,16 @@ README の制約事項に加えて、source から確かめられるものを置
 - probe の記録は、同期を持たない共有の配列と計数器に書く。
   テストが複数の thread を使う場合の被覆と probe 回数の帰属が正確かは、確かめていない。
   所在は `Mutation/mutating/infrastructure/roslyn/MutantSwitchSource.cs` の `Template` である。
-- worker への各指示には応答の期限があり、期限を超えると worker process を終了する。
-  build と git の差分取得を含む実行全体を包む、取り消しと期限の契約は確認できない。
-  所在は `Mutation/verifying/infrastructure/workers/WorkerClient.cs` である。
-- worker の異常終了は `Killed`、worker の `Failed` 応答と応答の期限切れは `TimedOut` に分類され、どちらも score の検出に数える。
+- worker への各指示には応答の期限があり、期限を超えるか取り消しの要求を受けると worker process を終了する。
+  実行全体を包む期限は持たず、外側の期限は SIGTERM などの信号で与える。
+  build と変異の生成は取り消しの要求を受けても終えるまで走り、その後で対象は判定に至らなかったものとして止まる。
+  所在は `Mutation/verifying/infrastructure/workers/WorkerClient.cs` と `Mutation/verifying/application/workflows/run-mutation-testing/TargetRun.cs` である。
+- worker の異常終了は `Killed`、worker の `Failed` 応答と共有 worker の初期化の失敗は `TimedOut` に分類され、どちらも score の検出に数える。
   件数だけでは、テストが変異を検出した場合と区別できない。
-  所在は `Mutation/verifying/infrastructure/workers/VerdictInterpretation.cs` と `Mutation/verifying/domain/aggregates/run-result/TargetResult.cs` である。
+  期限切れだけは、競合による遅れと区別して未判定にする。
+  対照の実行が予算に収まり、再実行も期限を超えた場合に限って、期限切れを検出に数える。
+  競合が一時で、対照の実行が収まった後に再び遅れた場合は、検出と区別できない。
+  所在は `Mutation/verifying/infrastructure/workers/VerdictInterpretation.cs`、`TimeoutAdjudication.cs` と `Mutation/verifying/domain/aggregates/run-result/TargetResult.cs` である。
 - `--exclude-static` が外す変異は、static 初期化でしか実行されない変異より広い。
   構文上 static の文脈にある変異は、通常の被覆テストがあっても外す。
   所在は `Mutation/verifying/domain/services/MutantScheduler.cs` の `Plan` である。
@@ -83,7 +87,10 @@ README の制約事項に加えて、source から確かめられるものを置
 - 継承した判定は、今回の `CompileError`、`NoCoverage`、`Ignored` の判定を上書きし得る。
   `--validate-survivors` は、継承した `Survived` を再検証しない。
   どちらも source の読取りから導いた推論で、実行で確かめていない。
-  所在は `Mutation/verifying/application/workflows/verify-mutants/VerifyMutants.cs` の `MergedVerdicts` と `RevalidateSurvivorsAsync` である。
+  所在は `Mutation/verifying/application/workflows/verify-mutants/VerdictMerge.cs` の `Merge` と `VerifyMutants.cs` の `RevalidateSurvivorsAsync` である。
 - 全量の実行の保存は、`--mutate`、`--ignore-operators`、`--ignore-methods` だけが違う実行の間で共有される。
   これらを切り替えると全体の再構築は起きなくなり、変異ごとの継承は設定を照合しないので、前回の判定を継承し得る。
   所在は `Mutation/verifying/application/workflows/run-mutation-testing/RunLayout.cs` である。
+- 判定の確定ごとの追記の記録は、`--validate-survivors` の再検証の結果と `--detection-matrix` の行列の行を持たない。
+  `--detection-matrix` の実行は継承を使わないので、止まった行列の実行を続きから実行することはできない。
+  所在は `Mutation/verifying/infrastructure/snapshot/SnapshotJournal.cs` と `Mutation/composition/operations/MutationTesting.cs` である。

@@ -5,7 +5,10 @@ using System.Collections.Concurrent;
 namespace Mutation.Verifying.Infrastructure.Workers;
 
 /// <summary>一回の実行呼び出しに閉じた判定の集計</summary>
-public sealed class RunTally(int total, Action<RunProgress> progress)
+/// <param name="total">実行する変異計画の件数</param>
+/// <param name="progress">進行を伝える通知先</param>
+/// <param name="settled">判定が確定するたびに呼ぶ通知先</param>
+public sealed class RunTally(int total, Action<RunProgress> progress, Action<MutantId, MutantVerdict> settled)
 {
     /// <summary>確定した判定の集まり</summary>
     private readonly ConcurrentDictionary<MutantId, MutantVerdict> verdicts = [];
@@ -43,10 +46,31 @@ public sealed class RunTally(int total, Action<RunProgress> progress)
         }
 
         timings.Add(new MutantTiming(plan.MutantId, elapsedMs, executedTests, isolated));
+        if (verdict is not MutantVerdict.Unjudged)
+        {
+            settled(plan.MutantId, verdict);
+        }
+
         var done = Interlocked.Increment(ref completed);
         if (done % reportEvery == 0 || done == total)
         {
             progress(new RunProgress.VerdictProgress(done, total));
+        }
+    }
+
+    /// <summary>判定を確定できなかった変異の記録。確定した件数にも、確定の通知にも数えない</summary>
+    /// <param name="plan">判定を確定できなかった変異計画</param>
+    /// <param name="cause">確定できなかった理由</param>
+    public void Abandon(MutantPlan plan, UnjudgedCause cause) =>
+        verdicts[plan.MutantId] = new MutantVerdict.Unjudged(cause);
+
+    /// <summary>取りかからなかった計画の、実行に至らなかった未判定としての記録</summary>
+    /// <param name="plans">取りかからなかった変異計画</param>
+    public void AbandonAll(IEnumerable<MutantPlan> plans)
+    {
+        foreach (var plan in plans)
+        {
+            Abandon(plan, new UnjudgedCause.NotRun());
         }
     }
 

@@ -1,4 +1,5 @@
 using Mutation.Shared;
+using Mutation.Verifying.Application;
 using Mutation.Verifying.Domain;
 using System.Collections.Concurrent;
 using System.Diagnostics;
@@ -8,7 +9,7 @@ using Mutation.Protocol;
 namespace Mutation.Verifying.Infrastructure.Workers;
 
 /// <summary>worker 群への変異計画の分配と判定の回収</summary>
-public sealed class TestingOrchestrator : IDisposable
+public sealed partial class TestingOrchestrator : IDisposable
 {
     /// <summary>worker の起動情報</summary>
     private readonly WorkerLaunchPlan launch;
@@ -25,6 +26,12 @@ public sealed class TestingOrchestrator : IDisposable
     /// <summary>変異ごとに全テストを実行し検出行列の行を残すか</summary>
     private readonly bool detectionMatrix;
 
+    /// <summary>run 応答を待つ上限の決め方</summary>
+    private readonly RunDeadlines deadlines;
+
+    /// <summary>期限を超えた変異の、検出か競合による遅れかの確かめ</summary>
+    private readonly TimeoutAdjudication adjudication;
+
     /// <summary>検出行列を求める実行で、共有側の検出を隔離側の行と合わせて確定するまで預ける変異ごとの結果</summary>
     private readonly ConcurrentDictionary<MutantId, SharedKill> sharedKills = new();
 
@@ -33,38 +40,49 @@ public sealed class TestingOrchestrator : IDisposable
     /// <param name="roster">連番順のテストの名簿</param>
     /// <param name="progress">進行を伝える通知先</param>
     /// <param name="detectionMatrix">変異ごとに全テストを実行し検出行列の行を残すか</param>
+    /// <param name="deadlines">run 応答を待つ上限の決め方</param>
     public TestingOrchestrator(
         WorkerLaunchPlan launch,
         TestRoster roster,
         Action<RunProgress> progress,
-        bool detectionMatrix
+        bool detectionMatrix,
+        RunDeadlines deadlines
     )
     {
         this.launch = launch;
         this.roster = roster;
         this.progress = progress;
         this.detectionMatrix = detectionMatrix;
-        isolationRuns = new IsolationRuns(launch, roster, detectionMatrix);
+        this.deadlines = deadlines;
+        isolationRuns = new IsolationRuns(launch, roster, detectionMatrix, deadlines);
+        adjudication = new TimeoutAdjudication(isolationRuns, roster, detectionMatrix);
     }
 
     /// <inheritdoc />
     public void Dispose() => isolationRuns.Dispose();
 
     /// <summary>全計画の実行と、この呼び出し分に閉じた判定の集計</summary>
+    /// <remarks>取り消しの要求を受けたら、実行中の変異は結果を採らず、残りの変異には取りかからない</remarks>
     /// <param name="plans">実行する変異計画の列</param>
     /// <param name="concurrency">同時に走らせる worker 数</param>
-    /// <returns>変異ごとの判定と実行の記録</returns>
-    public async Task<OrchestrationResult> ExecuteAsync(IReadOnlyList<MutantPlan> plans, int concurrency)
+    /// <param name="control">判定が確定するたびの通知先と取り消しの要求</param>
+    /// <returns>変異ごとの判定と実行の記録。判定を確定できなかった変異は未判定</returns>
+    public async Task<OrchestrationResult> ExecuteAsync(
+        IReadOnlyList<MutantPlan> plans,
+        int concurrency,
+        ExecutionControl control
+    )
     {
         var shared = new ConcurrentQueue<MutantPlan>(plans.Where(p => p.Execution is not MutantExecution.Isolated));
         var isolated = new ConcurrentQueue<MutantPlan>(plans.Where(p => p.Execution is MutantExecution.Isolated));
-        var tally = new RunTally(plans.Count, progress);
+        var tally = new RunTally(plans.Count, progress, control.Settled);
         progress(new RunProgress.ExecutionStarted(shared.Count, isolated.Count, Math.Max(1, concurrency)));
         var lanes = Enumerable
             .Range(0, Math.Max(1, concurrency))
-            .Select(_ => Task.Run(() => LaneAsync(shared, isolated, tally)))
+            .Select(_ => Task.Run(() => LaneAsync(shared, isolated, tally, control.Cancellation), CancellationToken.None))
             .ToArray();
         await Task.WhenAll(lanes).ConfigureAwait(false);
+        tally.AbandonAll([.. shared, .. isolated]);
         return tally.Result();
     }
 
@@ -72,49 +90,36 @@ public sealed class TestingOrchestrator : IDisposable
     private async Task LaneAsync(
         ConcurrentQueue<MutantPlan> shared,
         ConcurrentQueue<MutantPlan> isolated,
-        RunTally tally
+        RunTally tally,
+        CancellationToken cancellation
     )
     {
         WorkerClient? client = null;
-        while (shared.TryDequeue(out var plan))
+        while (!cancellation.IsCancellationRequested && shared.TryDequeue(out var plan))
         {
-            client ??= await StartSharedAsync().ConfigureAwait(false);
+            client ??= await StartSharedAsync(cancellation).ConfigureAwait(false);
             if (client is null)
             {
-                tally.Record(plan, new MutantVerdict.TimedOut(), 0, 0, isolated: false, Row(plan.Execution.ResidentSlice.TestOrder, null));
+                RecordStartFailure(plan, tally, cancellation);
                 continue;
             }
 
-            client = await RunSharedAsync(client, plan, isolated, tally).ConfigureAwait(false);
+            client = await RunSharedAsync(client, plan, isolated, tally, cancellation).ConfigureAwait(false);
         }
 
         client?.Dispose();
-        while (isolated.TryDequeue(out var plan))
+        while (!cancellation.IsCancellationRequested && isolated.TryDequeue(out var plan))
         {
-            var outcome = await isolationRuns.RunAsync(plan).ConfigureAwait(false);
-            if (sharedKills.TryRemove(plan.MutantId, out var kill))
-            {
-                tally.Record(
-                    plan,
-                    kill.Verdict,
-                    kill.ExecutedTests + outcome.ExecutedTests,
-                    kill.ElapsedMs + outcome.ElapsedMs,
-                    isolated: true,
-                    DetectionRows.Merge(kill.Row, outcome.Detection!)
-                );
-                continue;
-            }
-
-            tally.Record(plan, outcome.Verdict, outcome.ExecutedTests, outcome.ElapsedMs, isolated: true, outcome.Detection);
+            await RunIsolatedAsync(plan, tally, cancellation).ConfigureAwait(false);
         }
     }
 
     /// <summary>共有ホストの初期化と継続利用の可否の判定</summary>
     /// <returns>初期化済みの worker または初期化失敗時の不在</returns>
-    private async Task<WorkerClient?> StartSharedAsync()
+    private async Task<WorkerClient?> StartSharedAsync(CancellationToken cancellation)
     {
         var client = WorkerClient.Start(launch.WorkerDllPath, launch.ResultsDirectory);
-        var init = await client.SendAsync(WorkerRequests.Init(launch), TimeSpan.FromMinutes(2)).ConfigureAwait(false);
+        var init = await client.SendAsync(WorkerRequests.Init(launch), TimeSpan.FromMinutes(2), cancellation).ConfigureAwait(false);
         if (init.Response is not WorkerResponse.Opened)
         {
             client.Dispose();
@@ -124,17 +129,31 @@ public sealed class TestingOrchestrator : IDisposable
         return client;
     }
 
+    /// <summary>共有ホストを開けなかった計画の記録。取り消しで開けなかったときは結果を採らない</summary>
+    private void RecordStartFailure(MutantPlan plan, RunTally tally, CancellationToken cancellation)
+    {
+        if (cancellation.IsCancellationRequested)
+        {
+            tally.Abandon(plan, new UnjudgedCause.Interrupted());
+            return;
+        }
+
+        tally.Record(plan, new MutantVerdict.TimedOut(), 0, 0, isolated: false, Row(plan.Execution.ResidentSlice.TestOrder, null));
+    }
+
     /// <summary>共有実行後の worker の継続可否の決定</summary>
     /// <param name="client">指示を送る共有 worker</param>
     /// <param name="plan">共有実行する変異とテスト列の計画</param>
     /// <param name="isolated">新規 process で再判定する計画の追加先</param>
     /// <param name="tally">確定した判定と worker 再起動の集計先</param>
+    /// <param name="cancellation">取り消しの要求</param>
     /// <returns>後続の共有実行に使う worker または再起動が必要な場合の不在</returns>
     private async Task<WorkerClient?> RunSharedAsync(
         WorkerClient client,
         MutantPlan plan,
         ConcurrentQueue<MutantPlan> isolated,
-        RunTally tally
+        RunTally tally,
+        CancellationToken cancellation
     )
     {
         var (order, budget) = plan.Execution.ResidentSlice;
@@ -145,16 +164,38 @@ public sealed class TestingOrchestrator : IDisposable
             HitLimits.For(roster, order),
             detectionMatrix
         );
-        var exchange = await client.SendAsync(request, VerdictInterpretation.Deadline(budget)).ConfigureAwait(false);
+        var exchange = await client.SendAsync(request, deadlines.For(budget), cancellation).ConfigureAwait(false);
+        if (cancellation.IsCancellationRequested)
+        {
+            client.Dispose();
+            tally.Abandon(plan, new UnjudgedCause.Interrupted());
+            return null;
+        }
+
         var settled = VerdictInterpretation.Settle(exchange, client.HasExited);
         if (exchange.Response is not WorkerResponse.RunCompleted completed)
         {
-            tally.Record(plan, settled, 0, stopwatch.Elapsed.TotalMilliseconds, isolated: false, Row(order, exchange.Response));
             client.Dispose();
             tally.CountRestart();
-            return await StartSharedAsync().ConfigureAwait(false);
+            await RecordLostRunAsync(plan, exchange, settled, stopwatch.Elapsed.TotalMilliseconds, tally, cancellation).ConfigureAwait(false);
+            return null;
         }
 
+        return SettleCompleted(client, plan, completed, settled, stopwatch.Elapsed.TotalMilliseconds, isolated, tally);
+    }
+
+    /// <summary>応答を得た共有実行の、確定か再判定への回しか、worker の継続可否の決定</summary>
+    private WorkerClient? SettleCompleted(
+        WorkerClient client,
+        MutantPlan plan,
+        WorkerResponse.RunCompleted completed,
+        MutantVerdict settled,
+        double elapsedMs,
+        ConcurrentQueue<MutantPlan> isolated,
+        RunTally tally
+    )
+    {
+        var order = plan.Execution.ResidentSlice.TestOrder;
         if (IsUnreached(completed, settled))
         {
             isolated.Enqueue(plan with { Execution = plan.Execution.ToIsolated() });
@@ -181,20 +222,13 @@ public sealed class TestingOrchestrator : IDisposable
                 settled,
                 DetectionRows.From(order, roster, completed),
                 completed.ExecutedTests ?? order.Count,
-                stopwatch.Elapsed.TotalMilliseconds
+                elapsedMs
             );
             isolated.Enqueue(plan with { Execution = plan.Execution.ToIsolated() });
             return client;
         }
 
-        tally.Record(
-            plan,
-            settled,
-            completed.ExecutedTests ?? order.Count,
-            stopwatch.Elapsed.TotalMilliseconds,
-            isolated: false,
-            Row(order, completed)
-        );
+        tally.Record(plan, settled, completed.ExecutedTests ?? order.Count, elapsedMs, isolated: false, Row(order, completed));
         return client;
     }
 

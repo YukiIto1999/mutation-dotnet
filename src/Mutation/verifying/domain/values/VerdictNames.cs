@@ -17,9 +17,10 @@ public static class VerdictNames
             MutantVerdict.NoCoverage => "NoCoverage",
             MutantVerdict.CompileError => "CompileError",
             MutantVerdict.Ignored => "Ignored",
+            MutantVerdict.Unjudged => "Pending",
         };
 
-    /// <summary>保存された状態名からの確定結果の復元。未知の名前は Ignored への縮退</summary>
+    /// <summary>保存された状態名からの確定結果の復元。Pending は実行に至らなかった未判定、未知の名前は Ignored への縮退</summary>
     /// <param name="status">保存されていた status 値</param>
     /// <param name="killerTest">Killed のときの検出テスト名</param>
     /// <returns>状態名に対応する確定結果</returns>
@@ -31,6 +32,7 @@ public static class VerdictNames
             "Timeout" => new MutantVerdict.TimedOut(),
             "NoCoverage" => new MutantVerdict.NoCoverage(),
             "CompileError" => new MutantVerdict.CompileError(),
+            "Pending" => new MutantVerdict.Unjudged(new UnjudgedCause.NotRun()),
             _ => new MutantVerdict.Ignored(),
         };
 }

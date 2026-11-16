@@ -8,7 +8,7 @@ namespace Mutation.Verifying.Application;
 /// <param name="snapshots">保存と継承の port</param>
 public sealed class VerifyMutants(IWorkerRuns workerRuns, ISnapshots snapshots)
 {
-    /// <summary>全変異の判定の確定</summary>
+    /// <summary>全変異の判定の確定。判定の確定ごとに追記し、最後に次回の継承元として保存する</summary>
     /// <param name="request">判定確定に要る入力一式</param>
     /// <returns>変異ごとの判定と実行の記録</returns>
     public async Task<OrchestrationResult> ExecuteAsync(VerificationRequest request)
@@ -29,6 +29,7 @@ public sealed class VerifyMutants(IWorkerRuns workerRuns, ISnapshots snapshots)
         );
         var inherited = Inherited(request);
         var plans = schedule.Plans.Where(p => !inherited.ContainsKey(p.MutantId)).ToArray();
+        using var journal = snapshots.Begin(Checkpoint(request, schedule, inherited, plans));
         var executed = await workerRuns
             .ExecuteAsync(
                 request.Launch,
@@ -36,62 +37,48 @@ public sealed class VerifyMutants(IWorkerRuns workerRuns, ISnapshots snapshots)
                 plans,
                 request.Execution.Concurrency,
                 request.Execution.DetectionMatrix,
-                request.Progress
+                request.Progress,
+                new ExecutionControl(journal.Append, request.Cancellation)
             )
             .ConfigureAwait(false);
         executed = await RevalidateSurvivorsAsync(request, schedule, executed).ConfigureAwait(false);
-        var verdicts = MergedVerdicts(request, schedule, inherited, executed);
-        snapshots.Save(
-            new SnapshotSaveRequest(
-                request.Mutants,
-                verdicts,
-                request.Baseline,
-                request.Fingerprint,
-                request.Launch.TestAssemblyPath,
-                request.MutatedAssemblyPath,
-                request.CompileErrorIds,
-                request.SnapshotPath
-            )
-        );
+        var verdicts = VerdictMerge.Merge(request.CompileErrorIds, schedule, inherited, executed.Verdicts);
+        journal.Commit(SaveRequest(request, verdicts));
         return new OrchestrationResult(verdicts, executed.Timings, executed.WorkerRestarts, executed.Detections);
     }
 
-    /// <summary>後段が前段を上書きする、即時確定・継承・実行の判定の合流</summary>
-    private static Dictionary<MutantId, MutantVerdict> MergedVerdicts(
+    /// <summary>実行の前に分かっている判定を持つ保存の内容。これから実行する変異は未判定で置く</summary>
+    private static SnapshotSaveRequest Checkpoint(
         VerificationRequest request,
         SchedulingOutcome schedule,
         IReadOnlyDictionary<MutantId, MutantVerdict> inherited,
-        OrchestrationResult executed
-    )
-    {
-        var verdicts = new Dictionary<MutantId, MutantVerdict>();
-        foreach (var id in request.CompileErrorIds)
-        {
-            verdicts[id] = new MutantVerdict.CompileError();
-        }
+        IReadOnlyList<MutantPlan> plans
+    ) =>
+        SaveRequest(
+            request,
+            VerdictMerge.Merge(
+                request.CompileErrorIds,
+                schedule,
+                inherited,
+                plans.ToDictionary(plan => plan.MutantId, _ => (MutantVerdict)new MutantVerdict.Unjudged(new UnjudgedCause.NotRun()))
+            )
+        );
 
-        foreach (var id in schedule.NoCoverageMutants)
-        {
-            verdicts[id] = new MutantVerdict.NoCoverage();
-        }
-
-        foreach (var id in schedule.ExcludedStaticMutants)
-        {
-            verdicts[id] = new MutantVerdict.Ignored();
-        }
-
-        foreach (var (id, verdict) in inherited)
-        {
-            verdicts[id] = verdict;
-        }
-
-        foreach (var (id, verdict) in executed.Verdicts)
-        {
-            verdicts[id] = verdict;
-        }
-
-        return verdicts;
-    }
+    /// <summary>判定の集まりを次回の継承元として保存する内容</summary>
+    private static SnapshotSaveRequest SaveRequest(
+        VerificationRequest request,
+        IReadOnlyDictionary<MutantId, MutantVerdict> verdicts
+    ) =>
+        new(
+            request.Mutants,
+            verdicts,
+            request.Baseline,
+            request.Fingerprint,
+            request.Launch.TestAssemblyPath,
+            request.MutatedAssemblyPath,
+            request.CompileErrorIds,
+            request.SnapshotPath
+        );
 
     /// <summary>前回の保存から継承できる判定の取得。--with-baseline でなければ空</summary>
     private IReadOnlyDictionary<MutantId, MutantVerdict> Inherited(VerificationRequest request)
@@ -119,7 +106,7 @@ public sealed class VerifyMutants(IWorkerRuns workerRuns, ISnapshots snapshots)
         OrchestrationResult executed
     )
     {
-        if (!request.Execution.ValidateSurvivors)
+        if (!request.Execution.ValidateSurvivors || request.Cancellation.IsCancellationRequested)
         {
             return executed;
         }
@@ -144,7 +131,8 @@ public sealed class VerifyMutants(IWorkerRuns workerRuns, ISnapshots snapshots)
                 survivedPlans,
                 request.Execution.Concurrency,
                 request.Execution.DetectionMatrix,
-                request.Progress
+                request.Progress,
+                ExecutionControl.None with { Cancellation = request.Cancellation }
             )
             .ConfigureAwait(false);
         return executed.Overlaid(revalidated);
@@ -162,6 +150,7 @@ public sealed class VerifyMutants(IWorkerRuns workerRuns, ISnapshots snapshots)
 /// <param name="MutatedAssemblyPath">変異 assembly の絶対 path</param>
 /// <param name="SnapshotPath">保存 file の絶対 path</param>
 /// <param name="Progress">進行を伝える通知先</param>
+/// <param name="Cancellation">取り消しの要求</param>
 public sealed record VerificationRequest(
     IReadOnlyList<Mutant> Mutants,
     IReadOnlySet<MutantId> CompileErrorIds,
@@ -172,5 +161,6 @@ public sealed record VerificationRequest(
     string? Fingerprint,
     string MutatedAssemblyPath,
     string SnapshotPath,
-    Action<RunProgress> Progress
+    Action<RunProgress> Progress,
+    CancellationToken Cancellation
 );

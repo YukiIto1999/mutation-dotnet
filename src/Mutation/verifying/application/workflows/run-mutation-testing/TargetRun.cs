@@ -62,6 +62,11 @@ internal sealed class TargetRun(
         PreparedTarget target
     )
     {
+        if (session.Cancellation.IsCancellationRequested)
+        {
+            return Result.Failed<PipelineFailure>(new PipelineFailure.Interrupted());
+        }
+
         var compiled = mutantSource.Generate(target, layout.MutatedDirectory);
         if (compiled.IsFailed(out var compileFailure, out var artifact))
         {
@@ -97,11 +102,13 @@ internal sealed class TargetRun(
     {
         session.Clock.StartPhase();
         var observed = await workerRuns
-            .ObserveAsync(launch, session.Request.Execution.Concurrency)
+            .ObserveAsync(launch, session.Request.Execution.Concurrency, session.Cancellation)
             .ConfigureAwait(false);
         if (observed.IsFailed(out var baselineFailure, out var baseline))
         {
-            return baselineFailure;
+            return session.Cancellation.IsCancellationRequested
+                ? Result.Failed<PipelineFailure>(new PipelineFailure.Interrupted())
+                : baselineFailure;
         }
 
         var baselineMs = session.Clock.EndPhase();
@@ -124,7 +131,8 @@ internal sealed class TargetRun(
                     target.Fingerprint,
                     artifact.MutatedAssemblyPath,
                     layout.SnapshotPath,
-                    session.Progress
+                    session.Progress,
+                    session.Cancellation
                 )
             )
             .ConfigureAwait(false);
