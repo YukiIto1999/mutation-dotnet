@@ -3,6 +3,7 @@ using Mutation.Verifying.Application;
 using Mutation.Verifying.Domain;
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using TypeModeling.Domain;
 
 namespace Mutation.Verifying.Infrastructure.Reports;
@@ -10,8 +11,11 @@ namespace Mutation.Verifying.Infrastructure.Reports;
 /// <summary>Stryker 互換 mutation-report.json の書き出しと読み戻し</summary>
 public static class StrykerReport
 {
-    /// <summary>互換 schema が求める camelCase の書式</summary>
-    private static readonly JsonSerializerOptions Serializer = new(JsonSerializerDefaults.Web);
+    /// <summary>検出行列の欄を行のある変異だけに書く互換 schema の camelCase の書式</summary>
+    private static readonly JsonSerializerOptions Serializer = new(JsonSerializerDefaults.Web)
+    {
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    };
 
     /// <summary>確定結果の互換 schema での書き出し。対象をまたいで一つの報告にまとめる</summary>
     /// <param name="result">実行全体の確定結果</param>
@@ -36,6 +40,7 @@ public static class StrykerReport
             schemaVersion = "2",
             thresholds = new { high = 80, low = 60 },
             projectRoot,
+            run = RunStateReport.Describe(result),
             files,
         };
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? ".");
@@ -43,9 +48,12 @@ public static class StrykerReport
     }
 
     /// <summary>変異一件の互換 schema での記述。連番は対象名で修飾して一意にする</summary>
+    /// <remarks>検出行列の行を持つ変異での killedBy と coveredBy と testsCompleted と statusReason への行の書き出し</remarks>
     private static object Describe(TargetResult target, Mutant mutant)
     {
         var verdict = target.Verdicts[mutant.Id];
+        var killer = verdict is MutantVerdict.Killed killed ? new[] { killed.KillerTest } : Array.Empty<string>();
+        var row = target.Detections.GetValueOrDefault(mutant.Id);
         return new
         {
             id = $"{target.Name}:{mutant.Id.Value.ToString(CultureInfo.InvariantCulture)}",
@@ -57,10 +65,27 @@ public static class StrykerReport
                 end = new { line = mutant.Span.EndLine, column = mutant.Span.EndColumn },
             },
             status = VerdictNames.For(verdict),
-            killedBy = verdict is MutantVerdict.Killed killed ? new[] { killed.KillerTest } : Array.Empty<string>(),
+            killedBy = row is { Failed.Count: > 0 } ? Names(target, row.Failed) : killer,
+            coveredBy = row is null ? null : Names(target, row.Planned),
+            testsCompleted = row is null ? (int?)null : row.Planned.Count - row.NotRun.Count,
+            statusReason = StatusReason(verdict, target, row),
             @static = mutant.InStaticContext,
         };
     }
+
+    /// <summary>判定を確定できなかった理由、なければ検出行列の未実行のテストを名指しする、変異の statusReason</summary>
+    private static string? StatusReason(MutantVerdict verdict, TargetResult target, DetectionRow? row) =>
+        verdict switch
+        {
+            MutantVerdict.Unjudged unjudged => RunStateReport.Reason(unjudged.Cause),
+            _ when row is { IsComplete: false } =>
+                $"Detection matrix incomplete; not run: {string.Join(", ", Names(target, row.NotRun))}",
+            _ => null,
+        };
+
+    /// <summary>対象のテストの素性の並びと一致するテスト連番からの表示名の列</summary>
+    private static string[] Names(TargetResult target, IReadOnlyList<TestIndex> indexes) =>
+        indexes.Select(index => target.Tests[index.Value].DisplayName).ToArray();
 
     /// <summary>書き出した互換 schema の報告の読み戻し</summary>
     /// <remarks>未知の status は判定を偽らないよう、読めない報告として扱う</remarks>
@@ -80,14 +105,12 @@ public static class StrykerReport
                     .EnumerateArray()
                     .Select(mutant => Recorded(Path.GetFullPath(Path.Combine(projectRoot, file.Name)), mutant)))
                 .ToArray();
-            return new Result<RecordedReport, PipelineFailure>.Succeeded(new RecordedReport(projectRoot, mutants));
+            return Result.Succeeded(new RecordedReport(projectRoot, mutants));
         }
         catch (Exception exception)
             when (exception is JsonException or KeyNotFoundException or InvalidOperationException or FormatException)
         {
-            return new Result<RecordedReport, PipelineFailure>.Failed(
-                new PipelineFailure.ReportUnreadable(reportPath, exception.Message)
-            );
+            return Result.Failed<PipelineFailure>(new PipelineFailure.ReportUnreadable(reportPath, exception.Message));
         }
     }
 

@@ -13,6 +13,7 @@ namespace Mutation.Composition;
 /// <param name="IgnoredMethods">その呼び出しの中を変異させない method 名の列</param>
 /// <param name="OutputDirectory">報告と中間物を置く directory</param>
 /// <param name="WithBaseline">前回実行の保存から判定を継承するか</param>
+/// <param name="DetectionMatrix">前回の判定を継承せず変異ごとに被覆する全テストを実行する全失敗の報告の指定</param>
 public sealed record MutationRunOptions(
     IReadOnlyList<TargetSpec> Targets,
     string Configuration,
@@ -25,7 +26,8 @@ public sealed record MutationRunOptions(
     IReadOnlyList<string> IgnoredOperators,
     IReadOnlyList<string> IgnoredMethods,
     string OutputDirectory,
-    bool WithBaseline
+    bool WithBaseline,
+    bool DetectionMatrix = false
 )
 {
     /// <summary>変異の集合と判定に影響する設定の、指紋計算へ渡す要約</summary>

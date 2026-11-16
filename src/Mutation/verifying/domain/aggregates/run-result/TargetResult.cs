@@ -10,6 +10,7 @@ namespace Mutation.Verifying.Domain;
 /// <param name="Timings">段階別の所要時間</param>
 /// <param name="MutantTimings">変異ごとの所要時間の記録</param>
 /// <param name="WorkerRestarts">時間切れなどで worker を作り直した回数</param>
+/// <param name="Detections">検出行列を求めた実行での変異の連番から検出行列の行への対応</param>
 public sealed record TargetResult(
     string Name,
     IReadOnlyList<Mutant> Mutants,
@@ -17,7 +18,8 @@ public sealed record TargetResult(
     IReadOnlyList<TestCaseInfo> Tests,
     TargetTimings Timings,
     IReadOnlyList<MutantTiming> MutantTimings,
-    int WorkerRestarts
+    int WorkerRestarts,
+    IReadOnlyDictionary<MutantId, DetectionRow> Detections
 )
 {
     /// <summary>検出された変異の数。テスト失敗と時間超過の合計</summary>
@@ -26,4 +28,11 @@ public sealed record TargetResult(
 
     /// <summary>検出されなかった変異の数。生存と被覆なしの合計</summary>
     public int UndetectedCount => Verdicts.Values.Count(v => v.IsUndetected);
+
+    /// <summary>判定を確定できなかった変異の数。検出にも未検出にも数えない</summary>
+    public int UnjudgedCount => Verdicts.Values.Count(v => v is MutantVerdict.Unjudged);
+
+    /// <summary>走行が止まって実行に至らなかった、または実行の途中だった変異があるか</summary>
+    public bool IsInterrupted =>
+        Verdicts.Values.Any(v => v is MutantVerdict.Unjudged { Cause: UnjudgedCause.NotRun or UnjudgedCause.Interrupted });
 }

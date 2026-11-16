@@ -11,14 +11,19 @@ namespace Mutation.Composition;
 public sealed class MutationTesting(RunMutationTesting workflow, JudgeChangedLines judgeChangedLines)
 {
     /// <summary>一回の変異検査の遂行</summary>
+    /// <remarks>被覆する全テストの実行でしか得られない検出行列のための前回の判定の継承と再利用の停止</remarks>
     /// <param name="options">外から受け取った設定</param>
     /// <param name="progress">進行を伝える通知先</param>
+    /// <param name="cancellation">取り消しの要求。要求を受けた走行は、判定を確定した変異を報告に残して止まる</param>
     /// <returns>成功なら確定結果、失敗なら中断理由</returns>
     public Task<Result<MutationRunResult, PipelineFailure>> RunAsync(
         MutationRunOptions options,
-        Action<RunProgress> progress
-    ) =>
-        workflow.ExecuteAsync(
+        Action<RunProgress> progress,
+        CancellationToken cancellation = default
+    )
+    {
+        var withBaseline = options.WithBaseline && !options.DetectionMatrix;
+        return workflow.ExecuteAsync(
             new RunRequest(
                 options
                     .Targets.Select(t => new TargetRequest(t.ProjectPath, t.TestProjectPath, options.Configuration))
@@ -30,13 +35,20 @@ public sealed class MutationTesting(RunMutationTesting workflow, JudgeChangedLin
                     options.IgnoredOperators,
                     options.IgnoredMethods
                 ),
-                new ExecutionSettings(options.Concurrency, options.ValidateSurvivors, options.ExcludeStatic),
-                options.WithBaseline ? options.FingerprintSettings() : null,
+                new ExecutionSettings(
+                    options.Concurrency,
+                    options.ValidateSurvivors,
+                    options.ExcludeStatic,
+                    options.DetectionMatrix
+                ),
+                withBaseline ? options.FingerprintSettings() : null,
                 options.OutputDirectory,
-                options.WithBaseline
+                withBaseline
             ),
-            progress
+            progress,
+            cancellation
         );
+    }
 
     /// <summary>書き出し済みの報告からの、変わった行に重なる変異の確定結果の取り出し</summary>
     /// <param name="reportPath">mutation-report.json の path</param>

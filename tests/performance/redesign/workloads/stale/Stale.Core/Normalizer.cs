@@ -1,0 +1,7 @@
+namespace Stale.Core;
+
+public static class Normalizer
+{
+    // v1: 恒等。v2 で正の値を 5 だけ引く(App の境界 mutant の検出可否が変わる)
+    public static int Normalize(int x) => x;
+}

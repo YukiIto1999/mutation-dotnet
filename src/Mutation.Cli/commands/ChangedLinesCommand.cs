@@ -1,7 +1,4 @@
 using Mutation.Composition;
-using Mutation.Shared;
-using Mutation.Verifying.Domain;
-using TypeModeling.Domain;
 
 namespace Mutation.Cli.Commands;
 
@@ -15,13 +12,12 @@ public static class ChangedLinesCommand
     public static async Task<int> Run(string report, string since)
     {
         var outcome = BuildCore.Create().OnChangedLines(Path.GetFullPath(report), since);
-        if (outcome is Result<ChangedLineVerdicts, PipelineFailure>.Failed(var failure))
+        if (outcome.IsFailed(out var failed, out var verdicts))
         {
-            await Console.Error.WriteLineAsync(FailureLines.Describe(failure)).ConfigureAwait(false);
+            await Console.Error.WriteLineAsync(FailureLines.Describe(failed.Failure)).ConfigureAwait(false);
             return 1;
         }
 
-        var verdicts = ((Result<ChangedLineVerdicts, PipelineFailure>.Succeeded)outcome).Value;
         await Console.Out.WriteAsync(ChangedLineSummary.Render(verdicts, Environment.CurrentDirectory)).ConfigureAwait(false);
         return verdicts.Undetected.Count == 0 ? 0 : 2;
     }

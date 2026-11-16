@@ -16,16 +16,16 @@ public static class ChangedFiles
     public static Result<ChangedLines, PipelineFailure> Resolve(string projectDirectory, string sinceRef)
     {
         var toplevel = Run(projectDirectory, ["rev-parse", "--show-toplevel"]);
-        if (toplevel is Result<string, PipelineFailure>.Failed(var rootFailure))
+        if (toplevel.IsFailed(out var rootFailure, out var rootOutput))
         {
-            return new Result<ChangedLines, PipelineFailure>.Failed(rootFailure);
+            return rootFailure;
         }
 
-        var root = ((Result<string, PipelineFailure>.Succeeded)toplevel).Value.Trim();
+        var root = rootOutput.Trim();
         var baseCommit = Run(projectDirectory, ["rev-parse", "--verify", "--end-of-options", $"{sinceRef}^{{commit}}"]);
-        if (baseCommit is Result<string, PipelineFailure>.Failed(var baseFailure))
+        if (baseCommit.IsFailed(out var baseFailure, out var baseOutput))
         {
-            return new Result<ChangedLines, PipelineFailure>.Failed(baseFailure);
+            return baseFailure;
         }
 
         var diff = Run(
@@ -34,23 +34,22 @@ public static class ChangedFiles
                 "-c", "core.quotePath=false",
                 "diff", "-U0", "--no-color", "--no-ext-diff", "--no-textconv", "--no-relative", "--no-renames",
                 $"--dst-prefix={UnifiedDiff.NewSidePrefix}",
-                ((Result<string, PipelineFailure>.Succeeded)baseCommit).Value.Trim(), "--",
+                baseOutput.Trim(), "--",
             ]
         );
-        if (diff is Result<string, PipelineFailure>.Failed(var diffFailure))
+        if (diff.IsFailed(out var diffFailure, out var diffOutput))
         {
-            return new Result<ChangedLines, PipelineFailure>.Failed(diffFailure);
+            return diffFailure;
         }
 
         var untracked = Run(projectDirectory, ["ls-files", "-z", "--others", "--exclude-standard", "--full-name"]);
-        if (untracked is Result<string, PipelineFailure>.Failed(var untrackedFailure))
+        if (untracked.IsFailed(out var untrackedFailure, out var untrackedOutput))
         {
-            return new Result<ChangedLines, PipelineFailure>.Failed(untrackedFailure);
+            return untrackedFailure;
         }
 
-        var diffLines = ((Result<string, PipelineFailure>.Succeeded)diff).Value.Split('\n');
-        var untrackedFiles = ((Result<string, PipelineFailure>.Succeeded)untracked)
-            .Value.Split('\0', StringSplitOptions.RemoveEmptyEntries);
+        var diffLines = diffOutput.Split('\n');
+        var untrackedFiles = untrackedOutput.Split('\0', StringSplitOptions.RemoveEmptyEntries);
         var ranges = new Dictionary<string, IReadOnlyList<LineRange>>(
             UnifiedDiff.Parse(root, diffLines),
             StringComparer.Ordinal
@@ -60,7 +59,7 @@ public static class ChangedFiles
             ranges[Path.GetFullPath(Path.Combine(root, file))] = [LineRange.WholeFile];
         }
 
-        return new Result<ChangedLines, PipelineFailure>.Succeeded(new ChangedLines(ranges));
+        return Result.Succeeded(new ChangedLines(ranges));
     }
 
     /// <summary>git の一 command の実行と標準出力の取得</summary>
@@ -82,13 +81,13 @@ public static class ChangedFiles
         process.WaitForExit();
         if (process.ExitCode != 0)
         {
-            return new Result<string, PipelineFailure>.Failed(
+            return Result.Failed<PipelineFailure>(
                 new PipelineFailure.SinceUnavailable(
                     $"git {string.Join(' ', arguments)} が失敗した: {stderr.ToString().Trim()}"
                 )
             );
         }
 
-        return new Result<string, PipelineFailure>.Succeeded(output);
+        return Result.Succeeded(output);
     }
 }

@@ -34,8 +34,8 @@ public static class PlatformDiscovery
             startInfo.ArgumentList.Add("--client-port");
             startInfo.ArgumentList.Add(port.ToString(CultureInfo.InvariantCulture));
             startInfo.Environment["TESTINGPLATFORM_TELEMETRY_OPTOUT"] = "1";
-            using var process =
-                Process.Start(startInfo) ?? throw new InvalidOperationException("テスト実行体を起動できない");
+            using var process = new Process { StartInfo = startInfo };
+            process.Start();
             process.BeginOutputReadLine();
             process.BeginErrorReadLine();
             try

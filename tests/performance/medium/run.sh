@@ -16,7 +16,7 @@ done
 
 bench_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$bench_dir/../../.." && pwd)"
-work="$bench_dir/work"
+work="$repo_root/work/performance/medium"
 target="$work/target"
 results="$work/results"
 cli="$repo_root/src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll"

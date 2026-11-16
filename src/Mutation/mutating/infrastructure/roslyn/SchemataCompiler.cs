@@ -50,9 +50,9 @@ public static class SchemataCompiler
                 return Failed($"emit が例外で失敗した: {exception.Message}", mutatedTrees.Values, outputDirectory);
             }
 
-            if (emitted is Result<string, IReadOnlyList<Diagnostic>>.Succeeded(var outputPath))
+            if (!emitted.IsFailed(out var emitFailure, out var outputPath))
             {
-                return new Result<MutatedArtifact, PipelineFailure>.Succeeded(
+                return Result.Succeeded(
                     new MutatedArtifact(
                         collected.Mutants,
                         disabled.Select(id => new MutantId(id)).ToHashSet(),
@@ -63,7 +63,7 @@ public static class SchemataCompiler
                 );
             }
 
-            var errors = ((Result<string, IReadOnlyList<Diagnostic>>.Failed)emitted).Failure;
+            var errors = emitFailure.Failure;
             var culprits = RollbackAnalysis.FindCulprits(errors);
             if (culprits.IsEmpty)
             {
@@ -78,14 +78,14 @@ public static class SchemataCompiler
     }
 
     /// <summary>書換後ソースを診断用に残した上でのコンパイル失敗</summary>
-    private static Result<MutatedArtifact, PipelineFailure>.Failed Failed(
+    private static Failed<PipelineFailure> Failed(
         string message,
         IEnumerable<SyntaxTree> mutatedTrees,
         string outputDirectory
     )
     {
         var dumped = SchemataEmission.DumpSources(mutatedTrees, Path.Combine(outputDirectory, "failed-sources"));
-        return new Result<MutatedArtifact, PipelineFailure>.Failed(
+        return Result.Failed<PipelineFailure>(
             new PipelineFailure.CompileFailed($"{message}\n書換後のソース: {dumped}")
         );
     }

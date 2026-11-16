@@ -20,14 +20,14 @@ public sealed class PrepareTarget(IBinlogBuilds builds, ILocateTargets locations
     )
     {
         var built = await builds.BuildAsync(projects, workDirectory).ConfigureAwait(false);
-        if (built is Result<string, PipelineFailure>.Failed(var buildFailure))
+        if (built.IsFailed(out var buildFailure, out var binlogPath))
         {
-            return Failure(buildFailure);
+            return buildFailure;
         }
 
-        var located = Locate(((Result<string, PipelineFailure>.Succeeded)built).Value, projects);
+        var located = Locate(binlogPath, projects);
         var missing = projects
-            .Where(project => located[project] is Result<PreparedProject, PipelineFailure>.Failed)
+            .Where(project => located[project].IsFailed(out _, out _))
             .ToArray();
         if (missing.Length == 0)
         {
@@ -35,12 +35,12 @@ public sealed class PrepareTarget(IBinlogBuilds builds, ILocateTargets locations
         }
 
         var rebuilt = await builds.RebuildAsync(missing, workDirectory).ConfigureAwait(false);
-        if (rebuilt is Result<string, PipelineFailure>.Failed(var rebuildFailure))
+        if (rebuilt.IsFailed(out var rebuildFailure, out var rebuiltBinlogPath))
         {
-            return Failure(rebuildFailure);
+            return rebuildFailure;
         }
 
-        foreach (var (project, result) in Locate(((Result<string, PipelineFailure>.Succeeded)rebuilt).Value, missing))
+        foreach (var (project, result) in Locate(rebuiltBinlogPath, missing))
         {
             located[project] = result;
         }
@@ -57,15 +57,10 @@ public sealed class PrepareTarget(IBinlogBuilds builds, ILocateTargets locations
         var located = new Dictionary<TargetProjects, Result<PreparedProject, PipelineFailure>>();
         foreach (var project in projects)
         {
-            located[project] = locations.Locate(binlogPath, project) switch
-            {
-                Result<(CscInvocation Sut, string TestAssembly), PipelineFailure>.Succeeded succeeded =>
-                    new Result<PreparedProject, PipelineFailure>.Succeeded(
-                        new PreparedProject(project, succeeded.Value.Sut, succeeded.Value.TestAssembly)
-                    ),
-                Result<(CscInvocation Sut, string TestAssembly), PipelineFailure>.Failed failed =>
-                    new Result<PreparedProject, PipelineFailure>.Failed(failed.Failure),
-            };
+            var location = locations.Locate(binlogPath, project);
+            located[project] = location.IsFailed(out var failed, out var found)
+                ? failed
+                : Result.Succeeded(new PreparedProject(project, found.Sut, found.TestAssembly));
         }
 
         return located;
@@ -76,14 +71,9 @@ public sealed class PrepareTarget(IBinlogBuilds builds, ILocateTargets locations
         IReadOnlyList<TargetProjects> projects,
         Dictionary<TargetProjects, Result<PreparedProject, PipelineFailure>> located
     ) =>
-        new Result<IReadOnlyList<Result<PreparedProject, PipelineFailure>>, PipelineFailure>.Succeeded(
+        Result.Succeeded<IReadOnlyList<Result<PreparedProject, PipelineFailure>>>(
             [.. projects.Select(project => located[project])]
         );
-
-    /// <summary>全対象に及ぶ失敗の包み</summary>
-    private static Result<IReadOnlyList<Result<PreparedProject, PipelineFailure>>, PipelineFailure> Failure(
-        PipelineFailure failure
-    ) => new Result<IReadOnlyList<Result<PreparedProject, PipelineFailure>>, PipelineFailure>.Failed(failure);
 }
 
 /// <summary>build と特定を終えた対象一件</summary>

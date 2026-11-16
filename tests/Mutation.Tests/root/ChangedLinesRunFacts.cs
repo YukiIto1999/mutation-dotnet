@@ -2,7 +2,6 @@ using Mutation.Composition;
 using Mutation.Shared;
 using Mutation.Verifying.Domain;
 using TUnit.Core;
-using TypeModeling.Domain;
 
 namespace Mutation.Tests;
 
@@ -23,9 +22,8 @@ public sealed partial class ChangedLinesGateFacts
         await Assert.That(result.Completed.Single().Mutants.Select(m => m.Span.Line).ToArray()).IsEquivalentTo([11]);
         var judged = BuildCore.Create().OnChangedLines(
             repo.PathOf("out/lines/reports/mutation-report.json"), baseRef);
-        await Assert.That(judged is Result<ChangedLineVerdicts, PipelineFailure>.Succeeded).IsTrue();
-        await Assert.That(((Result<ChangedLineVerdicts, PipelineFailure>.Succeeded)judged).Value.Undetected.Count)
-            .IsEqualTo(1);
+        await Assert.That(judged.IsFailed(out _, out var verdicts)).IsFalse();
+        await Assert.That(verdicts!.Undetected.Count).IsEqualTo(1);
 
         var fileResult = await RunAsync(options with { ChangedLinesOnly = false });
         await Assert.That(fileResult.Failures).IsEmpty();
@@ -120,8 +118,8 @@ public sealed partial class ChangedLinesGateFacts
     private static async Task<MutationRunResult> RunAsync(MutationRunOptions options, Action<RunProgress>? progress = null)
     {
         var run = await BuildCore.Create().RunAsync(options, progress ?? (_ => { }));
-        await Assert.That(run is Result<MutationRunResult, PipelineFailure>.Succeeded).IsTrue();
-        return ((Result<MutationRunResult, PipelineFailure>.Succeeded)run).Value;
+        await Assert.That(run.IsFailed(out _, out var result)).IsFalse();
+        return result!;
     }
 
     /// <summary>変異検査の source fixture の directory</summary>

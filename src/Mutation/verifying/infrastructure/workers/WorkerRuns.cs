@@ -9,8 +9,11 @@ namespace Mutation.Verifying.Infrastructure.Workers;
 public sealed class WorkerRuns : IWorkerRuns
 {
     /// <inheritdoc />
-    public Task<Result<BaselineProfile, PipelineFailure>> ObserveAsync(WorkerLaunchPlan launch, int concurrency) =>
-        BaselineExecution.RunAsync(launch, concurrency);
+    public Task<Result<BaselineProfile, PipelineFailure>> ObserveAsync(
+        WorkerLaunchPlan launch,
+        int concurrency,
+        CancellationToken cancellation
+    ) => BaselineExecution.RunAsync(launch, concurrency, cancellation);
 
     /// <inheritdoc />
     public async Task<OrchestrationResult> ExecuteAsync(
@@ -18,10 +21,12 @@ public sealed class WorkerRuns : IWorkerRuns
         TestRoster roster,
         IReadOnlyList<MutantPlan> plans,
         int concurrency,
-        Action<RunProgress> progress
+        bool detectionMatrix,
+        Action<RunProgress> progress,
+        ExecutionControl control
     )
     {
-        using var orchestrator = new TestingOrchestrator(launch, roster, progress);
-        return await orchestrator.ExecuteAsync(plans, concurrency).ConfigureAwait(false);
+        using var orchestrator = new TestingOrchestrator(launch, roster, progress, detectionMatrix, RunDeadlines.Standard);
+        return await orchestrator.ExecuteAsync(plans, concurrency, control).ConfigureAwait(false);
     }
 }

@@ -21,14 +21,12 @@ public static class TargetLocation
         var invocations = BinlogCompilations.Read(binlogPath);
         if (!invocations.TryGetValue(Path.GetFullPath(projects.ProjectPath), out var sut))
         {
-            return new Result<(CscInvocation, string), PipelineFailure>.Failed(
-                new PipelineFailure.CompilerArgumentsNotFound(projects.ProjectPath)
-            );
+            return Result.Failed<PipelineFailure>(new PipelineFailure.CompilerArgumentsNotFound(projects.ProjectPath));
         }
 
         if (!invocations.TryGetValue(Path.GetFullPath(projects.TestProjectPath), out var test))
         {
-            return new Result<(CscInvocation, string), PipelineFailure>.Failed(
+            return Result.Failed<PipelineFailure>(
                 new PipelineFailure.CompilerArgumentsNotFound(projects.TestProjectPath)
             );
         }
@@ -36,12 +34,10 @@ public static class TargetLocation
         var testAssembly = ToBinPath(test.OutputPath);
         if (!File.Exists(testAssembly))
         {
-            return new Result<(CscInvocation, string), PipelineFailure>.Failed(
-                new PipelineFailure.NoTestsFound(testAssembly)
-            );
+            return Result.Failed<PipelineFailure>(new PipelineFailure.NoTestsFound(testAssembly));
         }
 
-        return new Result<(CscInvocation, string), PipelineFailure>.Succeeded((sut, testAssembly));
+        return Result.Succeeded<(CscInvocation Sut, string TestAssembly)>((sut, testAssembly));
     }
 
     /// <summary>obj 配下の出力 path から実行時の bin 配下の path への写像</summary>

@@ -1,0 +1,34 @@
+{
+  "standard": "/home/nixos/environment/architecture-standard",
+  "checkedRevision": "1aa46e1",
+  "recordedAt": "2026-10-01",
+  "policy": "process/audit.md「確認点」と process/migration.md の順序 2 に従い、行は増やさず是正で単調に減らす。S3776 の抑止は、ここに記録した member の SuppressMessage(Justification に台帳の id)に限る",
+  "violations": [
+    {
+      "id": "S3776-001",
+      "rule": "structure/tests/methods.md「構造の検証」: 関数の複雑さは、分岐の構造を数える尺度で linter が関数ごとに測り、値が 15 を超えたら不合格とする。languages/csharp/sonaranalyzer-csharp.md「予防」: S3776",
+      "file": "src/Mutation.Worker/Program.cs",
+      "line": 1,
+      "symbol": "Program.<Main>$(string[])(top-level statements の合成 entry point)",
+      "evidence": "SonarAnalyzer S3776 が認知的複雑度 16 を報告する(上限 15)",
+      "suppression": "top-level statements は member に属性を付けられないため、Program.cs の [assembly: SuppressMessage(Scope = \"member\", Target = \"~M:Program.<Main>$(System.String[])\")] で合成 entry point の member だけを抑止する",
+      "owner": "YukiIto1999",
+      "resolution": "指示の受付と応答の loop を名前のある関数へ分割して S3776 の値を 15 以下にし、SuppressMessage とこの行を同じ commit で削除する",
+      "rootCheck": "devenv shell -- verify(dotnet build の S3776 error)",
+      "mechanizable": true
+    },
+    {
+      "id": "S3776-002",
+      "rule": "structure/tests/methods.md「構造の検証」: 関数の複雑さは、分岐の構造を数える尺度で linter が関数ごとに測り、値が 15 を超えたら不合格とする。languages/csharp/sonaranalyzer-csharp.md「予防」: S3776",
+      "file": "src/Mutation/mutating/infrastructure/roslyn/operators/RelationalPatternSafety.cs",
+      "line": 16,
+      "symbol": "RelationalPatternSafety.IsSafeReplacement(SyntaxNode, int, SyntaxKind, SemanticModel)",
+      "evidence": "SonarAnalyzer S3776 が認知的複雑度 17 を報告する(上限 15)",
+      "suppression": "member の [SuppressMessage(\"Critical Code Smell\", \"S3776:...\", Justification = ...)]",
+      "owner": "YukiIto1999",
+      "resolution": "switch の種類ごとの pattern 列挙を別の関数へ分割して S3776 の値を 15 以下にし、SuppressMessage とこの行を同じ commit で削除する",
+      "rootCheck": "devenv shell -- verify(dotnet build の S3776 error)",
+      "mechanizable": true
+    }
+  ]
+}

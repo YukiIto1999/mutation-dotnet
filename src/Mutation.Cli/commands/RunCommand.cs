@@ -1,16 +1,20 @@
 
 
 
-using Mutation.Shared;
 using Mutation.Verifying.Domain;
 using Mutation.Composition;
-using TypeModeling.Domain;
 
 namespace Mutation.Cli.Commands;
 
 /// <summary>変異検査を実行する command</summary>
 public static class RunCommand
 {
+    /// <summary>判定を確定できなかった変異が残って終わった走行の終了コード</summary>
+    private const int UnjudgedRemain = 3;
+
+    /// <summary>信号を受けずに取り消された走行の終了コード。SIGTERM の慣例に合わせる</summary>
+    private const int InterruptedWithoutSignal = 143;
+
     /// <summary>対象 project の変異検査の、最初から最後までの実行</summary>
     /// <param name="project">-p, 変異対象 project の csproj の path。複数は `,` 区切り</param>
     /// <param name="testProject">-t, テスト project の csproj の path。`--project` と同数を同じ順で並べる</param>
@@ -26,7 +30,8 @@ public static class RunCommand
     /// <param name="ignoreMethods">その呼び出しの中を変異させない method 名。複数は `,` 区切り</param>
     /// <param name="excludeStatic">static 初期化でしか実行されない変異を対象外にする(Ignored として報告)</param>
     /// <param name="withBaseline">前回実行の保存からの、変わっていない変異の判定の継承</param>
-    /// <returns>成功なら 0、失敗なら 1、score が break-at 未満なら 2</returns>
+    /// <param name="detectionMatrix">前回の判定を継承せず変異ごとに被覆する全テストを実行する killedBy への全失敗の記録</param>
+    /// <returns>成功なら 0、失敗なら 1、score が break-at 未満なら 2、判定を確定できなかった変異が残れば 3、取り消しで止まったなら 128 に信号番号を足した値</returns>
     public static async Task<int> Run(
         string[] project,
         string[] testProject,
@@ -41,7 +46,8 @@ public static class RunCommand
         string[]? ignoreOperators = null,
         string[]? ignoreMethods = null,
         bool excludeStatic = false,
-        bool withBaseline = false
+        bool withBaseline = false,
+        bool detectionMatrix = false
     )
     {
         if (project.Length == 0 || project.Length != testProject.Length)
@@ -65,32 +71,49 @@ public static class RunCommand
             ignoreOperators ?? [],
             ignoreMethods ?? [],
             Path.GetFullPath(output),
-            withBaseline
+            withBaseline,
+            detectionMatrix
         );
+        using var termination = new TerminationSignals();
         var outcome = await BuildCore
             .Create()
-            .RunAsync(options, p => Console.Error.WriteLine(ProgressLines.Describe(p)))
+            .RunAsync(options, p => Console.Error.WriteLine(ProgressLines.Describe(p)), termination.Token)
             .ConfigureAwait(false);
-        if (outcome is Result<MutationRunResult, PipelineFailure>.Failed(var failure))
+        if (outcome.IsFailed(out var failed, out var result))
         {
-            await Console.Error.WriteLineAsync(FailureLines.Describe(failure)).ConfigureAwait(false);
+            await Console.Error.WriteLineAsync(FailureLines.Describe(failed.Failure)).ConfigureAwait(false);
             return 1;
         }
 
-        var result = ((Result<MutationRunResult, PipelineFailure>.Succeeded)outcome).Value;
         await Console.Out.WriteAsync(ConsoleSummary.Render(result)).ConfigureAwait(false);
-        return await ExitCodeAsync(result, breakAt).ConfigureAwait(false);
+        return await ExitCodeAsync(result, breakAt, termination.ExitCode).ConfigureAwait(false);
     }
 
-    /// <summary>中断した対象と --break-at と score の突き合わせによる終了コードの決定</summary>
-    private static async Task<int> ExitCodeAsync(MutationRunResult result, double breakAt)
+    /// <summary>取り消しと中断した対象と判定の残りと --break-at と score の突き合わせによる終了コードの決定</summary>
+    private static async Task<int> ExitCodeAsync(MutationRunResult result, double breakAt, int? signalExit)
     {
+        if (result.IsInterrupted)
+        {
+            await Console.Error.WriteLineAsync(
+                $"取り消しを受けて途中で止まった。判定を確定できなかった変異 {result.UnjudgedCount} 件は Pending として報告に残した"
+            ).ConfigureAwait(false);
+            return signalExit ?? InterruptedWithoutSignal;
+        }
+
         if (result.Failures.Any())
         {
             await Console.Error.WriteLineAsync(
                 $"{result.Failures.Count()} 件の対象が中断した: {string.Join(", ", result.Failures.Select(f => f.Name))}"
             ).ConfigureAwait(false);
             return 1;
+        }
+
+        if (result.UnjudgedCount > 0)
+        {
+            await Console.Error.WriteLineAsync(
+                $"判定を確定できなかった変異 {result.UnjudgedCount} 件を Pending として報告に残した。全件の判定は確定していない"
+            ).ConfigureAwait(false);
+            return UnjudgedRemain;
         }
 
         if (breakAt < 0 || result.Score is not { } score || score * 100 >= breakAt)

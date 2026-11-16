@@ -14,13 +14,23 @@ public static class SnapshotStore
     /// <summary>出力 directory 内での保存先</summary>
     public const string FileName = "snapshot.json";
 
-    /// <summary>今回の実行全体の、次回の継承元としての書き出し</summary>
+    /// <summary>保存先に並べて置く、判定の確定ごとの追記の記録の拡張子</summary>
+    private const string JournalExtension = ".verdicts.jsonl";
+
+    /// <summary>保存先に並べて置く、判定の確定ごとの追記の記録の path</summary>
+    /// <param name="snapshotPath">保存 file の path</param>
+    /// <returns>追記の記録の path</returns>
+    public static string JournalPathOf(string snapshotPath) => Path.ChangeExtension(snapshotPath, JournalExtension);
+
+    /// <summary>実行全体の判定の、次回の継承元としての保存形への写像</summary>
+    /// <remarks>判定を確定できなかった変異が残る保存は、生成入力の指紋と変異 assembly の hash を持たない。全体の再構築に一致せず、変異ごとの継承だけが使える</remarks>
     /// <param name="mutants">全変異</param>
     /// <param name="verdicts">変異の連番から確定結果への対応</param>
     /// <param name="tests">連番順のテストの素性</param>
     /// <param name="coverage">今回の被覆表</param>
-    /// <param name="context">指紋と成果物の素性と保存先</param>
-    public static void Save(
+    /// <param name="context">指紋と成果物の素性</param>
+    /// <returns>保存する内容</returns>
+    public static SnapshotDocument Describe(
         IReadOnlyList<Mutant> mutants,
         IReadOnlyDictionary<MutantId, MutantVerdict> verdicts,
         IReadOnlyList<TestCaseInfo> tests,
@@ -28,6 +38,7 @@ public static class SnapshotStore
         SnapshotContext context
     )
     {
+        var complete = !verdicts.Values.Any(verdict => verdict is MutantVerdict.Unjudged);
         var files = mutants
             .GroupBy(m => m.FilePath, StringComparer.Ordinal)
             .Where(group => File.Exists(group.Key))
@@ -39,10 +50,10 @@ public static class SnapshotStore
                 ),
                 StringComparer.Ordinal
             );
-        var document = new SnapshotDocument(
+        return new SnapshotDocument(
             HashOf(context.TestAssemblyPath),
-            context.CompilationFingerprint,
-            File.Exists(context.MutatedAssemblyPath) ? HashOf(context.MutatedAssemblyPath) : null,
+            complete ? context.CompilationFingerprint : null,
+            complete && File.Exists(context.MutatedAssemblyPath) ? HashOf(context.MutatedAssemblyPath) : null,
             context.CompileErrorIds.Select(id => id.Value).Order().ToArray(),
             tests
                 .Select(t => new SnapshotTest(
@@ -56,15 +67,29 @@ public static class SnapshotStore
             coverage.AmbientMutants.Select(id => id.Value).Order().ToArray(),
             files
         );
-        Directory.CreateDirectory(Path.GetDirectoryName(context.SavePath) ?? ".");
-        File.WriteAllText(context.SavePath, JsonSerializer.Serialize(document, Serializer));
     }
 
-    /// <summary>前回の保存を読み出す。なければ不在</summary>
+    /// <summary>保存の書き出し。途中で止まっても前の保存を壊さないよう、別 file へ書いてから置き換える</summary>
+    /// <param name="document">保存する内容</param>
+    /// <param name="path">書き出す file の path</param>
+    public static void Write(SnapshotDocument document, string path)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path) ?? ".");
+        var pending = path + ".tmp";
+        File.WriteAllText(pending, JsonSerializer.Serialize(document, Serializer));
+        File.Move(pending, path, overwrite: true);
+    }
+
+    /// <summary>前回の保存を読み出す。保存の前に止まった走行の追記の記録があれば、それを優先する</summary>
     /// <param name="path">保存 file の path</param>
     /// <returns>前回の判定一式。読めなければ不在</returns>
     public static SnapshotDocument? Load(string path)
     {
+        if (SnapshotJournalReplay.Recover(JournalPathOf(path)) is { } recovered)
+        {
+            return recovered;
+        }
+
         if (!File.Exists(path))
         {
             return null;
@@ -111,18 +136,16 @@ public static class SnapshotStore
         );
 }
 
-/// <summary>保存に添える指紋と成果物の素性、および保存先</summary>
+/// <summary>保存に添える指紋と成果物の素性</summary>
 /// <param name="TestAssemblyPath">テスト assembly の絶対 path</param>
 /// <param name="CompilationFingerprint">変異の生成入力の指紋</param>
 /// <param name="MutatedAssemblyPath">変異 assembly の絶対 path</param>
 /// <param name="CompileErrorIds">rollback で無効化された変異の連番</param>
 /// <param name="Roster">連番順のテストの名簿</param>
-/// <param name="SavePath">書き出す file の絶対 path</param>
 public sealed record SnapshotContext(
     string TestAssemblyPath,
     string? CompilationFingerprint,
     string MutatedAssemblyPath,
     IReadOnlySet<MutantId> CompileErrorIds,
-    TestRoster Roster,
-    string SavePath
+    TestRoster Roster
 );

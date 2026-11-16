@@ -38,7 +38,18 @@ public abstract record WorkerResponse
     /// <param name="KillerTest">最初に失敗したテストの表示名。なければ不在</param>
     /// <param name="ExecutedTests">実行を始めたテスト数。数えられないホストでは不在</param>
     /// <param name="Ms">実行の所要時間</param>
-    public sealed record RunCompleted(string Outcome, string? KillerTest, int? ExecutedTests, double Ms) : WorkerResponse;
+    /// <param name="Reached">活性の変異の枝へ実行が一度でも入ったか。観測しないホストでは不在</param>
+    /// <param name="FailedTestIds">全失敗の記録を求めた run で失敗した全テストの観測順の一意識別子</param>
+    /// <param name="CompletedTestIds">全失敗の記録を求めた run で結果まで観測した全テストの一意識別子</param>
+    public sealed record RunCompleted(
+        string Outcome,
+        string? KillerTest,
+        int? ExecutedTests,
+        double Ms,
+        bool? Reached = null,
+        IReadOnlyList<string>? FailedTestIds = null,
+        IReadOnlyList<string>? CompletedTestIds = null
+    ) : WorkerResponse;
 
     /// <summary>exit に応える終了の受理</summary>
     public sealed record Done : WorkerResponse;

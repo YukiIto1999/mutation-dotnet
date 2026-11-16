@@ -31,7 +31,7 @@ internal sealed class TargetRun(
         session.Clock.StartPhase();
         if (session.Request.WithBaseline && TryRebuild(session, layout, target) is { } reused)
         {
-            return new Result<TargetResult, PipelineFailure>.Succeeded(reused);
+            return Result.Succeeded(reused);
         }
 
         return await MutateAndTestAsync(session, layout, target).ConfigureAwait(false);
@@ -62,13 +62,17 @@ internal sealed class TargetRun(
         PreparedTarget target
     )
     {
-        var compiled = mutantSource.Generate(target, layout.MutatedDirectory);
-        if (compiled is Result<GeneratedMutants, PipelineFailure>.Failed(var compileFailure))
+        if (session.Cancellation.IsCancellationRequested)
         {
-            return new Result<TargetResult, PipelineFailure>.Failed(compileFailure);
+            return Result.Failed<PipelineFailure>(new PipelineFailure.Interrupted());
         }
 
-        var artifact = ((Result<GeneratedMutants, PipelineFailure>.Succeeded)compiled).Value;
+        var compiled = mutantSource.Generate(target, layout.MutatedDirectory);
+        if (compiled.IsFailed(out var compileFailure, out var artifact))
+        {
+            return compileFailure;
+        }
+
         session.Progress(
             new RunProgress.MutantsGenerated(
                 artifact.Mutants.Count,
@@ -98,14 +102,15 @@ internal sealed class TargetRun(
     {
         session.Clock.StartPhase();
         var observed = await workerRuns
-            .ObserveAsync(launch, session.Request.Execution.Concurrency)
+            .ObserveAsync(launch, session.Request.Execution.Concurrency, session.Cancellation)
             .ConfigureAwait(false);
-        if (observed is Result<BaselineProfile, PipelineFailure>.Failed(var baselineFailure))
+        if (observed.IsFailed(out var baselineFailure, out var baseline))
         {
-            return new Result<TargetResult, PipelineFailure>.Failed(baselineFailure);
+            return session.Cancellation.IsCancellationRequested
+                ? Result.Failed<PipelineFailure>(new PipelineFailure.Interrupted())
+                : baselineFailure;
         }
 
-        var baseline = ((Result<BaselineProfile, PipelineFailure>.Succeeded)observed).Value;
         var baselineMs = session.Clock.EndPhase();
         session.Progress(
             new RunProgress.BaselineCompleted(
@@ -126,11 +131,12 @@ internal sealed class TargetRun(
                     target.Fingerprint,
                     artifact.MutatedAssemblyPath,
                     layout.SnapshotPath,
-                    session.Progress
+                    session.Progress,
+                    session.Cancellation
                 )
             )
             .ConfigureAwait(false);
-        return new Result<TargetResult, PipelineFailure>.Succeeded(
+        return Result.Succeeded(
             new TargetResult(
                 layout.TargetName,
                 artifact.Mutants,
@@ -138,7 +144,8 @@ internal sealed class TargetRun(
                 baseline.Tests,
                 new TargetTimings(artifact.MutateMs, artifact.CompileMs, baselineMs, session.Clock.EndPhase()),
                 verdicts.Timings,
-                verdicts.WorkerRestarts
+                verdicts.WorkerRestarts,
+                verdicts.Detections
             )
         );
     }

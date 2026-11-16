@@ -1,9 +1,7 @@
 using Mutation.Composition;
 using Mutation.Mutating.Infrastructure.Git;
 using Mutation.Shared;
-using Mutation.Verifying.Domain;
 using TUnit.Core;
-using TypeModeling.Domain;
 
 namespace Mutation.Tests;
 
@@ -29,9 +27,8 @@ public sealed partial class ChangedLinesGateFacts
 
         var outcome = BuildCore.Create().OnChangedLines(report, baseRef);
 
-        await Assert.That(outcome is Result<ChangedLineVerdicts, PipelineFailure>.Succeeded).IsTrue();
-        var verdicts = ((Result<ChangedLineVerdicts, PipelineFailure>.Succeeded)outcome).Value;
-        await Assert.That(verdicts.OnChangedLines.Select(m => m.Id).ToArray()).IsEquivalentTo(["A:2", "A:2k", "New:1"]);
+        await Assert.That(outcome.IsFailed(out _, out var verdicts)).IsFalse();
+        await Assert.That(verdicts!.OnChangedLines.Select(m => m.Id).ToArray()).IsEquivalentTo(["A:2", "A:2k", "New:1"]);
         await Assert.That(verdicts.Undetected.Select(m => m.Id).ToArray()).IsEquivalentTo(["A:2", "New:1"]);
     }
 
@@ -48,8 +45,8 @@ public sealed partial class ChangedLinesGateFacts
 
         var resolved = new ChangeSets().Resolve(Path.Combine(repo.Root, "src", "sub"), baseRef);
 
-        await Assert.That(resolved is Result<ChangedLines, PipelineFailure>.Succeeded).IsTrue();
-        var files = ((Result<ChangedLines, PipelineFailure>.Succeeded)resolved).Value.Files;
+        await Assert.That(resolved.IsFailed(out _, out var changes)).IsFalse();
+        var files = changes!.Files;
         await Assert.That(files.Order(StringComparer.Ordinal).ToArray())
             .IsEquivalentTo([repo.PathOf("src/A.cs"), repo.PathOf("src/sub/New.cs")]);
     }
@@ -71,9 +68,8 @@ public sealed partial class ChangedLinesGateFacts
 
         var outcome = BuildCore.Create().OnChangedLines(report, baseRef);
 
-        await Assert.That(outcome is Result<ChangedLineVerdicts, PipelineFailure>.Succeeded).IsTrue();
-        var verdicts = ((Result<ChangedLineVerdicts, PipelineFailure>.Succeeded)outcome).Value;
-        await Assert.That(verdicts.Undetected.Select(mutant => mutant.Id).ToArray())
+        await Assert.That(outcome.IsFailed(out _, out var verdicts)).IsFalse();
+        await Assert.That(verdicts!.Undetected.Select(mutant => mutant.Id).ToArray())
             .IsEquivalentTo(["inserted", "changed"]);
     }
 
@@ -95,9 +91,8 @@ public sealed partial class ChangedLinesGateFacts
 
         var outcome = BuildCore.Create().OnChangedLines(report, baseRef);
 
-        await Assert.That(outcome is Result<ChangedLineVerdicts, PipelineFailure>.Succeeded).IsTrue();
-        var verdicts = ((Result<ChangedLineVerdicts, PipelineFailure>.Succeeded)outcome).Value;
-        await Assert.That(verdicts.Undetected.Select(mutant => mutant.Id).ToArray())
+        await Assert.That(outcome.IsFailed(out _, out var verdicts)).IsFalse();
+        await Assert.That(verdicts!.Undetected.Select(mutant => mutant.Id).ToArray())
             .IsEquivalentTo(["kept", "edited-elsewhere"]);
     }
 
@@ -112,9 +107,8 @@ public sealed partial class ChangedLinesGateFacts
 
         var outcome = BuildCore.Create().OnChangedLines(report, "no-such-ref");
 
-        var reason = outcome is Result<ChangedLineVerdicts, PipelineFailure>.Failed(
-            PipelineFailure.SinceUnavailable { Reason: var text }
-        )
+        var reason = outcome.IsFailed(out var failed, out _)
+            && failed.Failure is PipelineFailure.SinceUnavailable { Reason: var text }
             ? text
             : null;
         await Assert.That(reason).Contains("no-such-ref");
@@ -131,8 +125,8 @@ public sealed partial class ChangedLinesGateFacts
 
         var outcome = BuildCore.Create().OnChangedLines(report, "--cached");
 
-        await Assert.That(outcome is Result<ChangedLineVerdicts, PipelineFailure>.Failed(
-            PipelineFailure.SinceUnavailable)).IsTrue();
+        await Assert.That(outcome.IsFailed(out var failed, out _) && failed.Failure is PipelineFailure.SinceUnavailable)
+            .IsTrue();
     }
 
     /// <summary>無い報告が、読めない報告の失敗になること</summary>
@@ -143,7 +137,23 @@ public sealed partial class ChangedLinesGateFacts
 
         var outcome = BuildCore.Create().OnChangedLines(repo.PathOf("missing.json"), "HEAD");
 
-        await Assert.That(outcome is Result<ChangedLineVerdicts, PipelineFailure>.Failed(PipelineFailure.ReportUnreadable))
+        await Assert.That(outcome.IsFailed(out var failed, out _) && failed.Failure is PipelineFailure.ReportUnreadable)
+            .IsTrue();
+    }
+
+    /// <summary>変わった行の変異が Pending の報告で、未検出がなければ、合格にならず判定できない失敗になること</summary>
+    [Test]
+    public async Task Pending_mutant_on_a_changed_line_is_not_a_pass()
+    {
+        using var repo = await TempRepository.CreateAsync();
+        await repo.WriteAsync("src/A.cs", "one\ntwo\n");
+        var baseRef = await repo.CommitAllAsync();
+        await repo.WriteAsync("src/A.cs", "one\nchanged\n");
+        var report = await repo.WriteReportAsync(("src/A.cs", "A:2", 2, "Pending"), ("src/A.cs", "A:1", 1, "Survived"));
+
+        var outcome = BuildCore.Create().OnChangedLines(report, baseRef);
+
+        await Assert.That(outcome.IsFailed(out var failed, out _) && failed.Failure is PipelineFailure.UnjudgedOnChangedLines { Count: 1 })
             .IsTrue();
     }
 

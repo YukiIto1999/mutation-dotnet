@@ -22,12 +22,15 @@ public sealed class RunMutationTesting(
     private readonly TargetRun targetRun = new(mutantSource, verifyMutants, workerRuns, snapshots);
 
     /// <summary>全対象の全段階の実行による確定結果の算出。成功時は報告も書き出す</summary>
+    /// <remarks>取り消しの要求を受けて止まった走行も、判定を確定した変異を報告に残し、止まったことを報告の run に書く</remarks>
     /// <param name="request">一回の変異検査の入力</param>
     /// <param name="progress">進行を伝える通知先</param>
+    /// <param name="cancellation">取り消しの要求</param>
     /// <returns>成功なら確定結果、失敗なら中断理由</returns>
     public async Task<Result<MutationRunResult, PipelineFailure>> ExecuteAsync(
         RunRequest request,
-        Action<RunProgress> progress
+        Action<RunProgress> progress,
+        CancellationToken cancellation
     )
     {
         var clock = new PhaseClock();
@@ -42,24 +45,16 @@ public sealed class RunMutationTesting(
             .ConfigureAwait(false);
         var buildMs = clock.EndPhase();
         progress(new RunProgress.BuildCompleted(buildMs));
-        if (
-            located
-            is Result<IReadOnlyList<Result<PreparedTarget, PipelineFailure>>, PipelineFailure>.Failed(
-                var buildFailure
-            )
-        )
+        if (located.IsFailed(out var buildFailure, out var targets))
         {
-            return new Result<MutationRunResult, PipelineFailure>.Failed(buildFailure);
+            return buildFailure;
         }
 
-        var targets = (
-            (Result<IReadOnlyList<Result<PreparedTarget, PipelineFailure>>, PipelineFailure>.Succeeded)located
-        ).Value;
-        var session = new PipelineSession(request, layout, progress, clock);
+        var session = new PipelineSession(request, layout, progress, clock, cancellation);
         var outcomes = await RunEachAsync(session, targets, TargetNames(request.Targets)).ConfigureAwait(false);
         var result = new MutationRunResult(outcomes, MutationRunResult.Aggregate(outcomes, buildMs, clock.TotalMs));
         reports.Write(result, ReportRoot(request.Targets), layout.ReportsDirectory);
-        return new Result<MutationRunResult, PipelineFailure>.Succeeded(result);
+        return Result.Succeeded(result);
     }
 
     /// <summary>対象を順に検査しての帰結の収集。一件の中断は残りの検査を妨げない形</summary>
@@ -86,23 +81,23 @@ public sealed class RunMutationTesting(
         string name
     )
     {
-        if (target is Result<PreparedTarget, PipelineFailure>.Failed prepareFailure)
+        if (target.IsFailed(out var prepareFailure, out var prepared))
         {
             return Abandon(session, name, prepareFailure.Failure, 0);
         }
 
-        var prepared = ((Result<PreparedTarget, PipelineFailure>.Succeeded)target).Value;
-        var outcome = await targetRun.ExecuteAsync(session, prepared, name).ConfigureAwait(false);
-        return outcome switch
+        if (session.Cancellation.IsCancellationRequested)
         {
-            Result<TargetResult, PipelineFailure>.Succeeded succeeded => new TargetOutcome.Completed(succeeded.Value),
-            Result<TargetResult, PipelineFailure>.Failed failed => Abandon(
-                session,
-                name,
-                failed.Failure,
-                session.Clock.EndPhase()
-            ),
-        };
+            return Abandon(session, name, new PipelineFailure.Interrupted(), 0);
+        }
+
+        var outcome = await targetRun.ExecuteAsync(session, prepared, name).ConfigureAwait(false);
+        if (outcome.IsFailed(out var runFailure, out var completed))
+        {
+            return Abandon(session, name, runFailure.Failure, session.Clock.EndPhase());
+        }
+
+        return new TargetOutcome.Completed(completed);
     }
 
     /// <summary>置き場と報告で対象を指す名前の決定。重複は連番の付加による一意化</summary>

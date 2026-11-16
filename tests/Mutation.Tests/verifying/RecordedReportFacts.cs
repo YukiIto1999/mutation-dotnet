@@ -27,16 +27,15 @@ public sealed class RecordedReportFacts
 
         var parsed = StrykerReport.Parse(json, "report.json");
 
-        await Assert.That(parsed is Result<RecordedReport, PipelineFailure>.Succeeded).IsTrue();
-        var report = ((Result<RecordedReport, PipelineFailure>.Succeeded)parsed).Value;
-        await Assert.That(report.ProjectRoot).IsEqualTo("/repo");
+        await Assert.That(parsed.IsFailed(out _, out var report)).IsFalse();
+        await Assert.That(report!.ProjectRoot).IsEqualTo("/repo");
         await Assert.That(report.Mutants[0].FilePath).IsEqualTo(Path.GetFullPath("/repo/src/A.cs"));
         await Assert.That(report.Mutants[0].Span).IsEqualTo(new SourceSpan(5, 9, 6, 14));
         await Assert.That(report.Mutants[0].Verdict is MutantVerdict.Survived).IsTrue();
         await Assert.That(report.Mutants[1].Verdict is MutantVerdict.Killed { KillerTest: "Suite.Test" }).IsTrue();
     }
 
-    /// <summary>互換の状態名でない status を持つ報告が、その status を名指しした読めない報告として失敗すること</summary>
+    /// <summary>この道具が書かない状態名を持つ報告が、その status を名指しした読めない報告として失敗すること</summary>
     [Test]
     public async Task Unknown_status_makes_the_report_unreadable()
     {
@@ -44,13 +43,31 @@ public sealed class RecordedReportFacts
             """
             { "id": "T:1", "mutatorName": "LiteralMutator", "replacement": "1",
               "location": { "start": { "line": 1, "column": 1 }, "end": { "line": 1, "column": 2 } },
-              "status": "Pending", "killedBy": [], "static": false }
+              "status": "RuntimeError", "killedBy": [], "static": false }
             """
         );
 
         var parsed = StrykerReport.Parse(json, "report.json");
 
-        await Assert.That(ReasonOf(parsed)).Contains("Pending");
+        await Assert.That(ReasonOf(parsed)).Contains("RuntimeError");
+    }
+
+    /// <summary>判定を確定できなかった変異の Pending が、読めない報告にならず未判定として読み戻されること</summary>
+    [Test]
+    public async Task Pending_status_reads_back_as_an_unjudged_mutant()
+    {
+        var json = Report(
+            """
+            { "id": "T:1", "mutatorName": "LiteralMutator", "replacement": "1",
+              "location": { "start": { "line": 1, "column": 1 }, "end": { "line": 1, "column": 2 } },
+              "status": "Pending", "killedBy": [], "statusReason": "Unjudged: the run stopped before this mutant was tested", "static": false }
+            """
+        );
+
+        var parsed = StrykerReport.Parse(json, "report.json");
+
+        await Assert.That(parsed.IsFailed(out _, out var report)).IsFalse();
+        await Assert.That(report!.Mutants.Single().Verdict is MutantVerdict.Unjudged).IsTrue();
     }
 
     /// <summary>必須の文字列の欄が null の報告が、その欄を名指しした読めない報告として失敗すること</summary>
@@ -78,13 +95,14 @@ public sealed class RecordedReportFacts
     {
         var parsed = StrykerReport.Parse(json, "report.json");
 
-        await Assert.That(parsed is Result<RecordedReport, PipelineFailure>.Failed(PipelineFailure.ReportUnreadable))
+        await Assert.That(parsed.IsFailed(out var failed, out _) && failed.Failure is PipelineFailure.ReportUnreadable)
             .IsTrue();
     }
 
     /// <summary>読めない報告の失敗の理由。読めた場合や別の失敗なら不在</summary>
     private static string? ReasonOf(Result<RecordedReport, PipelineFailure> parsed) =>
-        parsed is Result<RecordedReport, PipelineFailure>.Failed(PipelineFailure.ReportUnreadable { Reason: var reason })
+        parsed.IsFailed(out var failed, out _)
+        && failed.Failure is PipelineFailure.ReportUnreadable { Reason: var reason }
             ? reason
             : null;
 

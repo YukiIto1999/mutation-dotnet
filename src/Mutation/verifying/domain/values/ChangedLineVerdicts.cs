@@ -10,6 +10,10 @@ public sealed record ChangedLineVerdicts(IReadOnlyList<RecordedMutant> OnChanged
     public IReadOnlyList<RecordedMutant> Undetected { get; } =
         [.. OnChangedLines.Where(mutant => mutant.Verdict.IsUndetected)];
 
+    /// <summary>判定を確定できなかった変異。未検出と数えず、合否を決められない材料として別に持つ</summary>
+    public IReadOnlyList<RecordedMutant> Unjudged { get; } =
+        [.. OnChangedLines.Where(mutant => mutant.Verdict is MutantVerdict.Unjudged)];
+
     /// <summary>報告の変異から、変わった行に重なるものだけの選別</summary>
     /// <remarks>変わった行の外にある変異は、確定結果によらず合否に入れない</remarks>
     /// <param name="mutants">報告に記録された全変異</param>

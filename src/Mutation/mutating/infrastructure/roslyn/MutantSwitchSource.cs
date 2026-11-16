@@ -57,6 +57,7 @@ public static class MutantSwitchSource
                 private static long hitLimit = ReadInt("{{HitLimitEnvironmentVariable}}", long.MaxValue);
                 private static long hitCount;
                 private static bool hitLimitTripped;
+                private static bool reached;
                 private static readonly bool[] hits = new bool[__COUNT__];
                 private static readonly bool[] staticHits = new bool[__COUNT__];
 
@@ -91,7 +92,13 @@ public static class MutantSwitchSource
                         throw new global::System.InvalidOperationException("{{HitLimitMarker}}");
                     }
 
-                    return active == id;
+                    if (active != id)
+                    {
+                        return false;
+                    }
+
+                    reached = true;
+                    return true;
                 }
 
                 public static void EnterStatic()
@@ -123,7 +130,15 @@ public static class MutantSwitchSource
                     hitLimit = limit;
                     hitCount = 0;
                     hitLimitTripped = false;
+                    reached = false;
                     active = id;
+                }
+
+                public static bool TakeReached()
+                {
+                    var taken = reached;
+                    reached = false;
+                    return taken;
                 }
 
                 public static void StartCoverage()

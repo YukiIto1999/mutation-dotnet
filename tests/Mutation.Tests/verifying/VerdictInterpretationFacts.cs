@@ -61,6 +61,14 @@ public sealed class VerdictInterpretationFacts
         await Assert.That(verdict is MutantVerdict.TimedOut).IsTrue();
     }
 
+    /// <summary>期限切れで止めた worker が既に終了していても、crash の検出でなく TimedOut になること</summary>
+    [Test]
+    public async Task Expired_deadline_is_timed_out_even_when_the_killed_worker_has_exited()
+    {
+        var verdict = VerdictInterpretation.Settle(new WorkerExchange(null, [], DeadlineExpired: true), workerExited: true);
+        await Assert.That(verdict is MutantVerdict.TimedOut).IsTrue();
+    }
+
     /// <summary>失敗応答は TimedOut として作り直しに回ること</summary>
     [Test]
     public async Task Failed_response_is_timed_out()

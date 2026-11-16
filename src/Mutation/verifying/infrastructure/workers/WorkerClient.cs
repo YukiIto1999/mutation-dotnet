@@ -53,8 +53,9 @@ public sealed class WorkerClient : IDisposable
     /// <param name="workerDllPath">worker の assembly の絶対 path</param>
     /// <param name="resultsDirectory">worker 内のテスト実行体が成果物を書く directory</param>
     /// <param name="environment">worker へ渡す追加の環境変数</param>
-    /// <returns>起動済みの worker。起動できなければ不在</returns>
-    public static WorkerClient? Start(
+    /// <returns>起動済みの worker</returns>
+    /// <exception cref="System.ComponentModel.Win32Exception">host 実行体の起動失敗</exception>
+    public static WorkerClient Start(
         string workerDllPath,
         string resultsDirectory,
         IReadOnlyDictionary<string, string>? environment = null
@@ -85,13 +86,8 @@ public sealed class WorkerClient : IDisposable
             startInfo.Environment[key] = value;
         }
 
-        var process = Process.Start(startInfo);
-        if (process is null)
-        {
-            requestPipe.Dispose();
-            responsePipe.Dispose();
-            return null;
-        }
+        var process = new Process { StartInfo = startInfo };
+        process.Start();
 
         requestPipe.DisposeLocalCopyOfClientHandle();
         responsePipe.DisposeLocalCopyOfClientHandle();
@@ -100,11 +96,12 @@ public sealed class WorkerClient : IDisposable
         return client;
     }
 
-    /// <summary>指示の送信と応答の待機。時間切れなら process を殺した上での不在</summary>
+    /// <summary>指示の送信と応答の待機。時間切れか取り消しなら process を殺した上での不在</summary>
     /// <param name="request">送る指示</param>
     /// <param name="timeout">応答を待つ上限</param>
+    /// <param name="cancellation">取り消しの要求。要求を受けたら応答を待たずに process を殺す</param>
     /// <returns>応答と、その処理中に worker が実 stdout へ書いた行</returns>
-    public async Task<WorkerExchange> SendAsync(WorkerRequest request, TimeSpan timeout)
+    public async Task<WorkerExchange> SendAsync(WorkerRequest request, TimeSpan timeout, CancellationToken cancellation = default)
     {
         var mySequence = Interlocked.Increment(ref sequence);
         try
@@ -116,12 +113,12 @@ public sealed class WorkerClient : IDisposable
             return new WorkerExchange(null, output.Take());
         }
 
-        var readTask = responseReader.ReadLineAsync();
-        var finished = await Task.WhenAny(readTask, Task.Delay(timeout)).ConfigureAwait(false);
+        var readTask = responseReader.ReadLineAsync(CancellationToken.None).AsTask();
+        var finished = await Task.WhenAny(readTask, Task.Delay(timeout, cancellation)).ConfigureAwait(false);
         if (finished != readTask)
         {
             Kill();
-            return new WorkerExchange(null, output.Take());
+            return new WorkerExchange(null, output.Take(), DeadlineExpired: !cancellation.IsCancellationRequested);
         }
 
         var line = await readTask.ConfigureAwait(false);
@@ -130,7 +127,7 @@ public sealed class WorkerClient : IDisposable
             return new WorkerExchange(null, output.Take());
         }
 
-        await Task.WhenAny(output.Completion(mySequence), Task.Delay(TimeSpan.FromSeconds(5))).ConfigureAwait(false);
+        await Task.WhenAny(output.Completion(mySequence), Task.Delay(TimeSpan.FromSeconds(5), CancellationToken.None)).ConfigureAwait(false);
         var response = Parse(line);
         return new WorkerExchange(response, output.Take());
     }
