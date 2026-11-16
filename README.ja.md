@@ -126,10 +126,16 @@ dotnet src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll changed-lines \
   build は関数の認知的複雑度(SonarAnalyzer の S3776、上限 15)も判定する。
 - `devenv shell verify-push`(15 分以内、push の前)は、`verify` と、フィクスチャへの E2E 検証(判定カテゴリ、3 つのテスト基盤、変更行の判定、検出行列)を実行する。
   自身のエンジンへの mutation testing は実行しない。
-- `devenv shell verify-full`(予算なし、gate にしない、release の前)は、`regression-full` の後に `mutation-full` を別の走行で実行し、終了 status は `regression-full` のものにする。
-- `devenv shell regression-full`(予算なし)は、`verify` と E2E 検証を変更で絞らず全て実行し、終了 status と失敗した段を `.mutation-output/regression-full/` へ残し、前回に無かった失敗した段を、追跡外の作業台帳 `work/backlog.md` へ追記する。
-- `devenv shell mutation-full`(予算なし)は、エンジン全量の mutation testing を分析として実行し、生の終了 status を `.mutation-output/full/exit-status` へ残し、前回の分析に無かった失敗と未検出 mutant を `work/backlog.md` へ追記する。
-  全量回帰の結果は変えない。
+- `devenv shell verify-full`(gate にしない、release の前)は、`regression-full` の後に `mutation-select` を、それぞれ [tiergate.json](tiergate.json) に宣言した上限で止まる別の走行で実行し、終了 status は `regression-full` のものにする。
+- `devenv shell regression-full`(15 分以内)は、`verify` と E2E 検証を変更で絞らず全て実行し、終了 status と失敗した段を `.mutation-output/regression-full/` へ残し、前回に無かった失敗した段を、追跡外の作業台帳 `work/backlog.md` へ追記する。
+  上限で止まった段は失敗でなく未完了として残し、終了 status 124 で終える。
+- `devenv shell mutation-select`(30 分以内)は、前回完了した分析の commit(記録が無ければ upstream か既定 branch との merge-base)を比較元にして、`run --since <比較元> --changed-lines --with-baseline` でエンジンの変わった行を分析し、`changed-lines --since <比較元>` で判定する。
+  `changed-lines` の生の終了 status(変わった行に未検出があれば 2)は、分析の不成立と上限での停止から分けて残す。
+  比較元、参考の記録としての変わった file、変異した file、未分析の範囲(変わった file の変わっていない行、変異した file の依存先と逆依存と、ほかの変更入力の影響。[#1](https://github.com/YukiIto1999/mutation-dotnet/issues/1) が未対応)と生の終了 status を `.mutation-output/select/` へ残し、差分の取得の失敗、変更なし、変異 0 件、上限での停止を区別して報告する。
+  分析ごとに、生の報告と、未検出 mutant ごとに `changed-lines` が未検出として出したかと後から書く原因と重大度の欄を持つ `undetected.json` を、`.mutation-output/select/runs/` へ上書きせずに残す。
+  全量の分析ではなく、全量回帰の結果は変えない。
+- `devenv shell mutation-full`(予算なし)は、全量の問いがある場合にエンジン全量の mutation testing を分析として実行し、生の終了 status を `.mutation-output/full/exit-status` へ残し、前回の分析に無かった失敗と未検出 mutant を `work/backlog.md` へ追記する。
+  `verify-full` からは実行しない。
 
 ブランチ・コミット・リリースの規約は [CONTRIBUTING.md](CONTRIBUTING.md) に、版の記録は [CHANGELOG.md](CHANGELOG.md) にある。
 

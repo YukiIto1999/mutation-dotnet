@@ -46,12 +46,28 @@ devenv が .NET SDK と検証入口を管理する。
 | --- | --- | --- | --- |
 | `devenv shell verify` | 2 分 | commit の前、agent が作業を止める前 | 警告 0 の build(S3776 の認知的複雑度 15 を含む)とユニットテスト |
 | `devenv shell verify-push` | 15 分 | push の前(作業機の pre-push hook が起動) | `verify` と E2E 検証。mutation は実行せず、mutation の結果で合否を決めない |
-| `devenv shell verify-full` | なし | release の準備の前 | `regression-full` の後に `mutation-full` を別の走行で実行する。gate にせず、終了 status は `regression-full` のもの |
-| `devenv shell regression-full` | なし | `verify-full` の一段として、または単独で | 全量回帰。`verify` と E2E 検証を影響範囲で絞らず全て実行する。終了 status と失敗した段を `.mutation-output/regression-full/` へ残し、失敗した段を `work/backlog.md` へ追記する |
-| `devenv shell mutation-full` | なし | `verify-full` の一段として、または単独で | 全量の mutation の分析。生の終了 status を `.mutation-output/full/exit-status` へ残し、前回から増えた失敗と未検出 mutant を `work/backlog.md` へ追記する。全量回帰の結果は変えない |
+| `devenv shell verify-full` | 46 分 | release の準備の前 | `regression-full` の後に `mutation-select` を別の走行で実行する。gate にせず、終了 status は `regression-full` のもの |
+| `devenv shell regression-full` | 15 分 | `verify-full` の一段として、または単独で | 全量回帰。`verify` と E2E 検証を影響範囲で絞らず全て実行する。終了 status と失敗した段を `.mutation-output/regression-full/` へ残し、失敗した段を `work/backlog.md` へ追記する |
+| `devenv shell mutation-select` | 30 分 | `verify-full` の一段として、または単独で | 選択型の mutation の分析。比較元から変わった `src/Mutation` の行に重なる mutant を engine の `--since --changed-lines` で選び、`--with-baseline` で前回の判定を継承し、`changed-lines` で判定する。比較元、候補、生成対象、未分析の範囲と生の終了 status を `.mutation-output/select/` へ、分析ごとの記録を `.mutation-output/select/runs/` へ残し、未検出 mutant と失敗を `work/backlog.md` へ追記する。全量回帰の結果は変えない |
+| `devenv shell mutation-full` | なし | 全量の分析が必要な問いがある場合に明示して | 全量の mutation の分析。生の終了 status を `.mutation-output/full/exit-status` へ残し、前回から増えた失敗と未検出 mutant を `work/backlog.md` へ追記する。`verify-full` からは呼ばない |
 
 mutation は検出力の分析であり、commit、push、release の合否を決めない。
-`regression-full` と `mutation-full` は上限、取消、終了 status を共有しない別の走行で、`verify-full` は両者を順に実行して `regression-full` の終了 status で終わる。
+`regression-full` と `mutation-select` は上限、取消、終了 status を共有しない別の走行で、`verify-full` は両者を順に実行して `regression-full` の終了 status で終わる。
+T3 の各走行の上限と根拠は [`tiergate.json`](tiergate.json) の `regression-full`、`mutation-select`、`verify-full` に宣言する。
+上限で止まった走行は未完了として、timeout の生の終了 status(124 か 137)を残す。
+
+`mutation-select` の比較元は、前回完了した分析が `.mutation-output/select/analyzed-commit` に記録した commit である。
+記録が無ければ upstream との merge-base、upstream も無ければ既定 branch との merge-base を使う。
+比較元と作業木の差分と未追跡 file のうち、内容が変わった `src/Mutation` の file の一覧は候補として記録するだけで、選択には使わない。
+engine は依存先と逆依存から対象を選べない([#1](https://github.com/YukiIto1999/mutation-dotnet/issues/1))ので、変わった file の変わっていない行、生成対象の依存先と逆依存、削除した file の変更前の参照、`src/Mutation` の外の production、production でない変更入力の影響は、未分析の範囲として `selection.json` に記録する。
+差分を取得できない場合は不成立(`diff-failed`)、変更が無い場合は変更なし(`no-change`)、候補はあるが変異できる箇所が無い場合は `no-mutant`、上限で止まった場合は未完了(`incomplete`)として区別する。
+未検出 mutant は分析の結果で、終了 status を変えず、`selection.json` と `work/backlog.md` に残す。
+生成対象は engine の `--since <比較元> --changed-lines` が選ぶ、変わった行に重なる mutant で、変わった file の一覧(`candidates`)は参考の記録として分けて残す。
+変わった行の未検出は `changed-lines --report <報告> --since <比較元>` の判定で決め、その生の終了 status(未検出があれば 2)を残し、報告か差分を得られない 1 と上限切れは分析の不成立と未完了として区別する。
+分析ごとに `.mutation-output/select/runs/<UTC 時刻>-<HEAD>/` を作って上書きせずに残し、比較元と HEAD を持つ `selection.json`、生の報告(`reports/`)、`changed-lines` の出力と終了 status、未検出 mutant ごとの記録 `undetected.json` を置く。
+`undetected.json` は mutant ごとに、`changed-lines` が未検出として出したか(`onChangedLine`、変更行の gate があれば止めていた push か)と、後から書く原因(`cause`、architecture-standard の `structure/tests/methods.md` の原因表)、根拠(`causeEvidence`)、重大度(`severity`)の欄を持つ。
+分析が完了すると HEAD を次回の比較元として記録し、不成立と未完了の場合は記録を進めない。
+選択の結果は全量の分析ではなく、`selection.json` の `scope` は `selected` である。
 
 予算を超えた段は失敗として扱い、より安い検証へ置き換えるか後の段へ移す。
 S3776 の既存違反は、`docs/conformance-baseline.json` の基線台帳に記録した member だけを、台帳の id を Justification に書いた `SuppressMessage` で抑止する。
@@ -72,7 +88,7 @@ README は英語を正本とし、README.ja は同じ変更で正本に合わせ
 読み手がいなくなった文書は、必要な情報を移してから取り除く。
 
 計画、調査、実験、下書き、作業台帳は、追跡されない `work/` に置く。
-`work/` は各 checkout に任意で存在する一時的な場所で、`devenv shell verify-full`(`regression-full` と `mutation-full`)が追記する `work/backlog.md` を含む。
+`work/` は各 checkout に任意で存在する一時的な場所で、`devenv shell verify-full`(`regression-full` と `mutation-select`)と `mutation-full` が追記する `work/backlog.md` を含む。
 追跡する文書は `work/` の内容に依存しない。
 作業が終わったら、保守に必要な意味を移してから、不要になった作業記録を取り除く。
 
