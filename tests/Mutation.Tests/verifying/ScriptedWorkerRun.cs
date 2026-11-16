@@ -98,14 +98,15 @@ internal sealed class ScriptedWorkerRun : IDisposable
     /// <param name="roster">連番順のテストの名簿</param>
     /// <param name="plans">共有の計画を実行順に並べた変異計画</param>
     /// <returns>判定と操作の記録および終了後の process の状態</returns>
-    public async Task<ScriptedExecution> ExecuteAsync(TestRoster roster, params MutantPlan[] plans)
-    {
-        using var orchestrator = new TestingOrchestrator(launch, roster, _ => { });
-        var result = await orchestrator.ExecuteAsync(plans, concurrency: 1);
-        var calls = await ReadJournalAsync();
-        var surviving = await StillRunningAsync(calls.Select(call => call.Pid).Distinct().ToArray());
-        return new ScriptedExecution(result, calls, surviving);
-    }
+    public Task<ScriptedExecution> ExecuteAsync(TestRoster roster, params MutantPlan[] plans) =>
+        RunAsync(roster, detectionMatrix: false, plans);
+
+    /// <summary>検出行列を求める一本の lane での変異実行と worker の終了の観測</summary>
+    /// <param name="roster">連番順のテストの名簿</param>
+    /// <param name="plans">共有の計画を実行順に並べた変異計画</param>
+    /// <returns>判定と行と操作の記録および終了後の process の状態</returns>
+    public Task<ScriptedExecution> ExecuteDetectionMatrixAsync(TestRoster roster, params MutantPlan[] plans) =>
+        RunAsync(roster, detectionMatrix: true, plans);
 
     /// <summary>基準観測の収集と worker の終了の観測</summary>
     /// <param name="concurrency">同時に走らせる worker 数</param>
@@ -120,6 +121,20 @@ internal sealed class ScriptedWorkerRun : IDisposable
 
     /// <inheritdoc />
     public void Dispose() => Directory.Delete(directory, recursive: true);
+
+    /// <summary>一本の lane での変異実行と記録と process の状態の回収</summary>
+    /// <param name="roster">連番順のテストの名簿</param>
+    /// <param name="detectionMatrix">変異ごとに全失敗の記録を求めるか</param>
+    /// <param name="plans">共有の計画を実行順に並べた変異計画</param>
+    /// <returns>判定と操作の記録および終了後の process の状態</returns>
+    private async Task<ScriptedExecution> RunAsync(TestRoster roster, bool detectionMatrix, MutantPlan[] plans)
+    {
+        using var orchestrator = new TestingOrchestrator(launch, roster, _ => { }, detectionMatrix);
+        var result = await orchestrator.ExecuteAsync(plans, concurrency: 1);
+        var calls = await ReadJournalAsync();
+        var surviving = await StillRunningAsync(calls.Select(call => call.Pid).Distinct().ToArray());
+        return new ScriptedExecution(result, calls, surviving);
+    }
 
     /// <summary>worker 群が残した記録の読み込み</summary>
     /// <returns>受信順の worker 指示の記録</returns>

@@ -3,17 +3,16 @@ using Microsoft.VisualStudio.TestPlatform.ObjectModel;
 
 namespace Mutation.Worker;
 
-/// <summary>変異検査の実行で最初の失敗を捉える VSTest の受け口</summary>
-public sealed class VstestRunRecorder(SwitchAccessor accessor) : VstestRecorder
+/// <summary>変異検査の実行で失敗と完了を捉える VSTest の受け口</summary>
+/// <param name="accessor">変異 assembly の切替クラスへの操作</param>
+/// <param name="allFailures">最初の失敗の後も失敗と完了を記録し続けるか</param>
+public sealed class VstestRunRecorder(SwitchAccessor accessor, bool allFailures) : VstestRecorder
 {
     /// <summary>実行を始めたテスト数</summary>
     public int ExecutedTests { get; private set; }
 
-    /// <summary>最初に失敗したテストの表示名。失敗がなければ不在</summary>
-    public string? KillerTest { get; private set; }
-
-    /// <summary>最初の失敗が probe 上限超過によるものか</summary>
-    public bool HitLimitExceeded { get; private set; }
+    /// <summary>観測した失敗と完了の記録</summary>
+    public RunObservation Observation { get; } = new();
 
     /// <inheritdoc />
     public override void RecordStart(TestCase testCase)
@@ -25,14 +24,28 @@ public sealed class VstestRunRecorder(SwitchAccessor accessor) : VstestRecorder
     /// <inheritdoc />
     public override void RecordResult(TestResult testResult)
     {
-        if (testResult.Outcome != TestOutcome.Failed || KillerTest is not null)
+        var failed = testResult.Outcome == TestOutcome.Failed;
+        if (!allFailures && (!failed || Observation.KillerTest is not null))
         {
             return;
         }
 
-        KillerTest = testResult.TestCase.DisplayName;
-        HitLimitExceeded =
+        var testId = testResult.TestCase.Id.ToString();
+        if (testResult.Outcome is TestOutcome.Passed or TestOutcome.Failed or TestOutcome.Skipped)
+        {
+            Observation.Complete(testId);
+        }
+
+        if (!failed)
+        {
+            return;
+        }
+
+        Observation.Fail(
+            testId,
+            testResult.TestCase.DisplayName,
             (testResult.ErrorMessage ?? "").Contains(InjectionContract.HitLimitMarker, StringComparison.Ordinal)
-            || (testResult.ErrorStackTrace ?? "").Contains(InjectionContract.HitLimitMarker, StringComparison.Ordinal);
+                || (testResult.ErrorStackTrace ?? "").Contains(InjectionContract.HitLimitMarker, StringComparison.Ordinal)
+        );
     }
 }

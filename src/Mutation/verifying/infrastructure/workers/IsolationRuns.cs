@@ -10,7 +10,8 @@ namespace Mutation.Verifying.Infrastructure.Workers;
 /// <summary>環境変数で事前活性化した新規 process での変異一件の検査</summary>
 /// <param name="launch">worker の起動情報</param>
 /// <param name="roster">連番順のテストの名簿</param>
-public sealed class IsolationRuns(WorkerLaunchPlan launch, TestRoster roster) : IDisposable
+/// <param name="detectionMatrix">変異ごとに全テストを実行し検出行列の行を残すか</param>
+public sealed class IsolationRuns(WorkerLaunchPlan launch, TestRoster roster, bool detectionMatrix) : IDisposable
 {
     // 隔離 process はテスト実行体が内部で全並列に走るため、lane 数のまま重ねると CPU を奪い合う
     private const int ConcurrentIsolations = 2;
@@ -54,22 +55,28 @@ public sealed class IsolationRuns(WorkerLaunchPlan launch, TestRoster roster) : 
             return new IsolationOutcome(
                 new MutantVerdict.Killed("(initialization failure)"),
                 0,
-                stopwatch.Elapsed.TotalMilliseconds
+                stopwatch.Elapsed.TotalMilliseconds,
+                Row(order, null)
             );
         }
 
-        var request = new WorkerRequest.Run(plan.MutantId.Value, order.Select(roster.Id).ToArray());
+        var request = new WorkerRequest.Run(plan.MutantId.Value, order.Select(roster.Id).ToArray(), AllFailures: detectionMatrix);
         var exchange = await client.SendAsync(request, VerdictInterpretation.Deadline(budget)).ConfigureAwait(false);
         var verdict = VerdictInterpretation.Settle(exchange, client.HasExited);
         var executed = exchange.Response is WorkerResponse.RunCompleted completed
             ? completed.ExecutedTests ?? order.Count
             : 0;
-        return new IsolationOutcome(verdict, executed, stopwatch.Elapsed.TotalMilliseconds);
+        return new IsolationOutcome(verdict, executed, stopwatch.Elapsed.TotalMilliseconds, Row(order, exchange.Response));
     }
+
+    /// <summary>検出行列を求める実行での run の応答からの行</summary>
+    private DetectionRow? Row(IReadOnlyList<TestIndex> order, WorkerResponse? response) =>
+        detectionMatrix ? DetectionRows.From(order, roster, response) : null;
 }
 
 /// <summary>隔離実行一件の確定結果と実行の記録</summary>
 /// <param name="Verdict">変異の確定結果</param>
 /// <param name="ExecutedTests">実行を始めたテスト数</param>
 /// <param name="ElapsedMs">起動から確定までの所要時間</param>
-public sealed record IsolationOutcome(MutantVerdict Verdict, int ExecutedTests, double ElapsedMs);
+/// <param name="Detection">検出行列を求めた実行での検出行列の行</param>
+public sealed record IsolationOutcome(MutantVerdict Verdict, int ExecutedTests, double ElapsedMs, DetectionRow? Detection);

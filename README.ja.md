@@ -75,6 +75,7 @@ dotnet src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll run \
 | `--validate-survivors` | 生存 mutant を新規プロセスで再検証 |
 | `--exclude-static` | static の文脈にある変異と、テストの外か static 初期化の最中に実行される変異を、通常のテストが被覆していても対象外にし、Ignored として報告 |
 | `--with-baseline` | 同じ出力先の同じ種類の前回実行の保存から、不変の mutant の判定を継承。全量の実行は全量の実行から、`--since` の実行は `--since` の実行から継承 |
+| `--detection-matrix` | 最初の失敗で打ち切らず、mutant ごとに被覆する全テストを実行し、失敗した全テストを報告に記録する。判定は変わらない。前回の判定は継承しないので、`--with-baseline` は効かない |
 
 ## レポート
 
@@ -82,6 +83,11 @@ console 要約に加え、`<output>/reports/` へ 2 ファイルを書き出す�
 
 - `mutation-report.json` は mutation-testing report schema の報告で、mutation-testing-elements で表示できる。
 - `timings.json` はフェーズ別と mutant 別の実測時間で、ボトルネック分析に使う。
+
+`--detection-matrix` を指定すると、`mutation-report.json` の実行した各 mutant は、失敗した全テストを `killedBy` に、実行したテストを `coveredBy` に、結果を観測したテストの数を `testsCompleted` に持つ。
+時間切れや異常終了で結果の一部を失った mutant は行列が完全でなく、`testsCompleted` が `coveredBy` の数より小さくなり、`statusReason` が実行されなかったテストを名指しする。
+テストは表示名で示す。
+この指定では、Microsoft.Testing.Platform はテストを一件ずつ別の呼び出しで実行する。
 
 ## 変更行の判定
 
@@ -118,7 +124,7 @@ dotnet src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll changed-lines \
 
 - `devenv shell verify`(2 分以内、commit の前)は、analyzer の警告をエラー扱いにした build と、ユニットテストを実行する。
   build は関数の認知的複雑度(SonarAnalyzer の S3776、上限 15)も判定する。
-- `devenv shell verify-push`(15 分以内、push の前)は、`verify` と、フィクスチャへの E2E 検証(判定カテゴリ、3 つのテスト基盤、変更行の判定)を実行する。
+- `devenv shell verify-push`(15 分以内、push の前)は、`verify` と、フィクスチャへの E2E 検証(判定カテゴリ、3 つのテスト基盤、変更行の判定、検出行列)を実行する。
   自身のエンジンへの mutation testing は実行しない。
 - `devenv shell verify-full`(予算なし、gate にしない、release の前)は、`regression-full` の後に `mutation-full` を別の走行で実行し、終了 status は `regression-full` のものにする。
 - `devenv shell regression-full`(予算なし)は、`verify` と E2E 検証を変更で絞らず全て実行し、終了 status と失敗した段を `.mutation-output/regression-full/` へ残し、前回に無かった失敗した段を、追跡外の作業台帳 `work/backlog.md` へ追記する。

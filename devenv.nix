@@ -29,6 +29,7 @@
     bash tests/e2e/medium/verification/verify.sh
     bash tests/e2e/medium/frameworks/verify-frameworks.sh
     bash tests/e2e/medium/changed-lines/verify-changed-lines.sh
+    bash tests/e2e/medium/detection-matrix/verify-detection-matrix.sh
   '';
 
   # T3 の全量回帰(予算なし、gate にしない): T1 と T2 の製品検査を、影響範囲で絞らず全て実行する。
@@ -62,6 +63,7 @@
     stage "e2e の verification" bash tests/e2e/medium/verification/verify.sh
     stage "e2e の frameworks" bash tests/e2e/medium/frameworks/verify-frameworks.sh
     stage "e2e の changed-lines" bash tests/e2e/medium/changed-lines/verify-changed-lines.sh
+    stage "e2e の detection-matrix" bash tests/e2e/medium/detection-matrix/verify-detection-matrix.sh
 
     touch "$out/failed-stages"
     printf '%s\n' "$status" > "$out/exit-status"

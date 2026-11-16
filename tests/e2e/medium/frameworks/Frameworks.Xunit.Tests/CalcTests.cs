@@ -14,6 +14,9 @@ public sealed class CalcTests
     }
 
     [Fact]
+    public void Add_commutes() => Assert.Equal(Calc.Add(2, 3), Calc.Add(3, 2));
+
+    [Fact]
     public void Above_boundary()
     {
         Assert.True(Calc.Above(11));

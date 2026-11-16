@@ -96,7 +96,7 @@ public sealed class VstestTestHost : ITestHost
         }
 
         // Cancel は engine の停止待ちが長く状態も汚すため、失敗の記録だけで打ち切りに代える
-        var recorder = new VstestRunRecorder(accessor);
+        var recorder = new VstestRunRecorder(accessor, request.AllFailures);
         executorFactory().RunTests(cases, VstestSession.Context(), recorder);
         var reached = accessor.TakeReached();
         if (!HostEnvironment.IsPreactivated)
@@ -104,9 +104,9 @@ public sealed class VstestTestHost : ITestHost
             accessor.Activate(-1, long.MaxValue);
         }
 
-        return new WorkerResponse.RunCompleted(
-            RunOutcomes.From(recorder.KillerTest, recorder.HitLimitExceeded),
-            recorder.KillerTest,
+        return RunOutcomes.Completed(
+            recorder.Observation,
+            request.AllFailures,
             recorder.ExecutedTests,
             stopwatch.Elapsed.TotalMilliseconds,
             reached

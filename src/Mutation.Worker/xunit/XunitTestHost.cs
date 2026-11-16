@@ -82,7 +82,7 @@ public sealed class XunitTestHost : ITestHost
             accessor.Activate(request.MutantId, request.HitLimit ?? long.MaxValue);
         }
 
-        var sink = new MutantRunSink(accessor, failFast: true);
+        var sink = new MutantRunSink(accessor, failFast: !request.AllFailures);
         controller.RunTests(cases, sink, executionOptions);
         sink.Finished.Wait();
         var reached = accessor.TakeReached();
@@ -91,9 +91,9 @@ public sealed class XunitTestHost : ITestHost
             accessor.Activate(-1, long.MaxValue);
         }
 
-        return new WorkerResponse.RunCompleted(
-            RunOutcomes.From(sink.KillerTest, sink.HitLimitExceeded),
-            sink.KillerTest,
+        return RunOutcomes.Completed(
+            sink.Observation,
+            request.AllFailures,
             sink.ExecutedTests,
             stopwatch.Elapsed.TotalMilliseconds,
             reached

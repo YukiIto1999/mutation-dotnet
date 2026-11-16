@@ -18,6 +18,7 @@ public interface IWorkerRuns
     /// <param name="roster">連番順のテストの名簿</param>
     /// <param name="plans">実行する変異計画の列</param>
     /// <param name="concurrency">同時に走らせる worker 数</param>
+    /// <param name="detectionMatrix">変異ごとに全テストを実行し検出行列の行を残すか</param>
     /// <param name="progress">進行を伝える通知先</param>
     /// <returns>この呼び出し分の判定と記録</returns>
     Task<OrchestrationResult> ExecuteAsync(
@@ -25,6 +26,7 @@ public interface IWorkerRuns
         TestRoster roster,
         IReadOnlyList<MutantPlan> plans,
         int concurrency,
+        bool detectionMatrix,
         Action<RunProgress> progress
     );
 }

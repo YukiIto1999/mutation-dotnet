@@ -11,7 +11,15 @@ namespace Mutation.Tests;
 /// <param name="Mode">run の実行形またはそれ以外の指示の目印</param>
 /// <param name="MutantId">run の対象の変異連番またはそれ以外の指示での不在</param>
 /// <param name="TestIds">run と baseline が実行を求めるテスト識別子の列</param>
-internal sealed record WorkerCall(int Pid, string Request, string Mode, int? MutantId, IReadOnlyList<string> TestIds)
+/// <param name="AllFailures">最初の失敗で打ち切らない全失敗の記録を run が求めたか</param>
+internal sealed record WorkerCall(
+    int Pid,
+    string Request,
+    string Mode,
+    int? MutantId,
+    IReadOnlyList<string> TestIds,
+    bool AllFailures
+)
 {
     /// <summary>run の指示の種類名</summary>
     public const string RunRequest = "run";
@@ -28,8 +36,11 @@ internal sealed record WorkerCall(int Pid, string Request, string Mode, int? Mut
     /// <summary>環境変数で活性化済みの隔離 process で受けた実行形の名前</summary>
     public const string IsolatedMode = "isolated";
 
+    /// <summary>全失敗の記録を求めた run の打ち切り方の目印</summary>
+    public const string AllFailuresMark = "all";
+
     /// <summary>記録の一行からの復元</summary>
-    /// <param name="line">pid・指示・実行形・変異連番・テスト識別子を縦棒で区切った一行</param>
+    /// <param name="line">pid・指示・実行形・変異連番・テスト識別子・打ち切り方を縦棒で区切った一行</param>
     /// <returns>その行が表す指示</returns>
     public static WorkerCall Parse(string line)
     {
@@ -39,7 +50,8 @@ internal sealed record WorkerCall(int Pid, string Request, string Mode, int? Mut
             fields[1],
             fields[2],
             int.TryParse(fields[3], CultureInfo.InvariantCulture, out var mutantId) ? mutantId : null,
-            fields[4].Split(',', StringSplitOptions.RemoveEmptyEntries)
+            fields[4].Split(',', StringSplitOptions.RemoveEmptyEntries),
+            fields[5] == AllFailuresMark
         );
     }
 }
@@ -58,6 +70,11 @@ internal sealed record ScriptedExecution(
     /// <param name="mutantId">変異の連番</param>
     /// <returns>確定した判定</returns>
     public MutantVerdict Verdict(int mutantId) => Result.Verdicts[new MutantId(mutantId)];
+
+    /// <summary>変異の検出行列の行</summary>
+    /// <param name="mutantId">変異の連番</param>
+    /// <returns>失敗したテストと未実行のテストの記録</returns>
+    public DetectionRow Row(int mutantId) => Result.Detections[new MutantId(mutantId)];
 
     /// <summary>指定した変異を共有 worker で実行した記録の取得</summary>
     /// <param name="mutantId">変異の連番</param>

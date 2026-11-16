@@ -12,7 +12,8 @@ namespace Mutation.ScriptedWorker;
 /// baseline の結果は要求順の観測と重複を除いた Ambient
 /// Baselined 以外の baseline 応答は観測の連結を打ち切る失敗
 /// 台本にない指示や識別子は失敗の応答
-/// journal.log の列は pid・指示・実行形・変異の連番・テスト識別子で区切りは縦棒
+/// journal.log の列は pid・指示・実行形・変異の連番・テスト識別子・打ち切り方で区切りは縦棒
+/// 打ち切り方は全失敗の記録を求めた run が all で最初の失敗で打ち切る run が first
 /// 検出かつ未到達の応答を返した共有 worker は後続の run も失敗させる汚染状態
 /// </remarks>
 internal sealed class ScriptedBehavior
@@ -87,7 +88,7 @@ internal sealed class ScriptedBehavior
     /// <returns>開設済みを示す応答</returns>
     private async Task<WorkerResponse> OpenAsync()
     {
-        await JournalAsync("init", NoValue, NoValue, []);
+        await JournalAsync("init", NoValue, NoValue, [], NoValue);
         return new WorkerResponse.Opened();
     }
 
@@ -95,7 +96,7 @@ internal sealed class ScriptedBehavior
     /// <returns>発見済みテストの応答または台本不足の失敗</returns>
     private async Task<WorkerResponse> DiscoverAsync()
     {
-        await JournalAsync("discover", NoValue, NoValue, []);
+        await JournalAsync("discover", NoValue, NoValue, [], NoValue);
         return script.TryGetValue(DiscoverKey, out var scripted) ? scripted : new WorkerResponse.Failed("台本にない discover");
     }
 
@@ -104,7 +105,7 @@ internal sealed class ScriptedBehavior
     /// <returns>要求順の基準観測または最初に遭遇した収集失敗</returns>
     private async Task<WorkerResponse> BaselineAsync(WorkerRequest.Baseline baseline)
     {
-        await JournalAsync("baseline", NoValue, NoValue, baseline.TestIds);
+        await JournalAsync("baseline", NoValue, NoValue, baseline.TestIds, NoValue);
         var observations = new List<WorkerResponse.Baselined>();
         foreach (var testId in baseline.TestIds)
         {
@@ -130,7 +131,7 @@ internal sealed class ScriptedBehavior
     private async Task<WorkerResponse> RunAsync(WorkerRequest.Run run)
     {
         var mode = run.HitLimit is null ? "isolated" : "shared";
-        await JournalAsync("run", mode, $"{run.MutantId}", run.TestIds);
+        await JournalAsync("run", mode, $"{run.MutantId}", run.TestIds, run.AllFailures ? "all" : "first");
         if (polluted)
         {
             return new WorkerResponse.RunCompleted(WorkerContract.OutcomeKilled, PollutedKillerTest, null, 0, true);
@@ -147,12 +148,13 @@ internal sealed class ScriptedBehavior
     /// <param name="mode">共有または隔離の実行形の識別子</param>
     /// <param name="mutant">変異の連番または連番を持たない指示の目印</param>
     /// <param name="testIds">指示が持つテスト識別子の列</param>
+    /// <param name="stop">run の打ち切り方または run 以外の指示の目印</param>
     /// <returns>追記完了を表す task</returns>
     /// <exception cref="IOException">journal への追記の失敗</exception>
     /// <exception cref="AbandonedMutexException">前の記録を書いていた worker の異常終了</exception>
-    private Task JournalAsync(string request, string mode, string mutant, IEnumerable<string> testIds)
+    private Task JournalAsync(string request, string mode, string mutant, IEnumerable<string> testIds, string stop)
     {
-        var line = $"{Environment.ProcessId}|{request}|{mode}|{mutant}|{string.Join(',', testIds)}";
+        var line = $"{Environment.ProcessId}|{request}|{mode}|{mutant}|{string.Join(',', testIds)}|{stop}";
         var runName = Path.GetFileName(Path.GetDirectoryName(journalPath));
         using var mutex = new Mutex(initiallyOwned: false, $"Mutation.ScriptedWorker.{runName}");
         mutex.WaitOne();

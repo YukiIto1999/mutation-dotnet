@@ -61,6 +61,7 @@ A target that fails does not stop the others. Abandoned targets appear in the su
 | `--validate-survivors` | Re-verify surviving mutants in a fresh process |
 | `--exclude-static` | Ignore mutants in a static context, or that run outside a test or during static initialization, even when ordinary tests cover them. They are reported as Ignored |
 | `--with-baseline` | Inherit verdicts of unchanged mutants from the previous run in the same output directory of the same kind: a whole run inherits from a whole run, and a `--since` run from a `--since` run |
+| `--detection-matrix` | Do not stop at the first failing test: run every covering test of each mutant and record every failing test in the report. Verdicts are unchanged; previous verdicts are not inherited, so `--with-baseline` has no effect |
 
 ## Reports
 
@@ -68,6 +69,8 @@ The run writes a console summary and two files under `<output>/reports/`:
 
 - `mutation-report.json` — the mutation-testing report schema, viewable with mutation-testing-elements
 - `timings.json` — per-phase and per-mutant timings for bottleneck analysis
+
+With `--detection-matrix`, each executed mutant in `mutation-report.json` lists every failing test in `killedBy`, the tests it ran in `coveredBy`, and the number of tests whose result was observed in `testsCompleted`. A mutant whose run lost some results, for example after a timeout or a crash, is incomplete: `testsCompleted` is smaller than `coveredBy`, and `statusReason` names the tests that did not run. Tests are identified by their display names. Microsoft.Testing.Platform runs each test as a separate invocation in this mode.
 
 ## Changed-line gate
 
@@ -96,7 +99,7 @@ dotnet src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll changed-lines \
 Verification runs through devenv entries, split by time budget:
 
 - `devenv shell verify` (within the 120-second budget declared in [tiergate.json](tiergate.json), before every commit) builds the solution with every analyzer warning as an error, including cognitive complexity (SonarAnalyzer S3776, threshold 15), and runs the unit tests.
-- `devenv shell verify-push` (within 15 minutes, before every push) runs `verify` and the end-to-end checks on the fixtures (verdict categories, the three test frameworks, the changed-line gate). It runs no mutation testing on mutation-dotnet's own engine.
+- `devenv shell verify-push` (within 15 minutes, before every push) runs `verify` and the end-to-end checks on the fixtures (verdict categories, the three test frameworks, the changed-line gate, the detection matrix). It runs no mutation testing on mutation-dotnet's own engine.
 - `devenv shell verify-full` (no budget, not a gate, before every release) runs `regression-full` and then `mutation-full` as two separate runs, and exits with the status of `regression-full`.
 - `devenv shell regression-full` (no budget) runs `verify` and the end-to-end checks without narrowing them to a change, keeps its exit status and failed stages under `.mutation-output/regression-full/`, and appends failed stages that the previous run did not report to `work/backlog.md`, an ignored working ledger.
 - `devenv shell mutation-full` (no budget) analyses the whole engine with mutation testing, keeps its raw exit status in `.mutation-output/full/exit-status`, and appends failures and undetected mutants that the previous analysis did not report to `work/backlog.md`. It never changes the regression result.

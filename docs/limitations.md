@@ -43,6 +43,14 @@ README の制約事項に加えて、source から確かめられるものを置
   他の Microsoft.Testing.Platform 基盤には付けない。
   VSTest adapter は `Cancel` を使わないので、残りの被覆テストを走らせ切る。
   所在は `Mutation.Worker/platform/PlatformFlavor.cs` と `Mutation.Worker/vstest/VstestTestHost.cs` である。
+- `--detection-matrix` の Microsoft.Testing.Platform の run は、テストごとに実行体の entry point を呼ぶ。
+  そのため所要時間は、baseline と同じく、テスト数に比例する呼び出しの固定費を含む。
+  probe の回数もテストごとに数え直すので、全 uid を一度に渡す既定の run と、hit limit に達する境目が違い得る。
+  後者は source の読取りから導いた推論で、実行で確かめていない。
+  所在は `Mutation.Worker/platform/PlatformTestHost.cs` の `RunEach` である。
+- `--detection-matrix` の `killedBy` と `coveredBy` は、テストの一意識別子ではなく表示名を書く。
+  表示名が重なるテストは、報告の上で区別できない。
+  所在は `Mutation/verifying/infrastructure/reports/StrykerReport.cs` の `Describe` である。
 - VSTest adapter ホストは実行のたびに executor を作り直すので、共有ホストの利点は xunit v2 と Microsoft.Testing.Platform より小さい見込みである。
   現在の値は測定していない。
 - probe を通らないループと、hit limit の例外を握り潰す包括的な catch は、probe の上限で捕らえられない。
