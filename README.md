@@ -72,9 +72,11 @@ The run writes a console summary and two files under `<output>/reports/`:
 
 With `--detection-matrix`, each executed mutant in `mutation-report.json` lists every failing test in `killedBy`, the tests it ran in `coveredBy`, and the number of tests whose result was observed in `testsCompleted`. A mutant whose run lost some results, for example after a timeout or a crash, is incomplete: `testsCompleted` is smaller than `coveredBy`, and `statusReason` names the tests that did not run. Tests are identified by their display names. Microsoft.Testing.Platform runs each test as a separate invocation in this mode.
 
+Both files carry a `run` object that tells whether the run settled every mutant. `state` is `completed` when every mutant has a verdict, and `interrupted` or `unjudged` otherwise; `complete` is true only for `completed`; `unjudged` counts the mutants without a verdict and `unjudgedBy` splits them by cause (`notRun`, `interrupted`, `contendedTimeout`); `interruptedTargets` names the targets that never reached judgement. A mutant without a verdict has the status `Pending` and a `statusReason`. It counts neither as detected nor as undetected, so it stays out of the mutation score.
+
 ## Changed-line gate
 
-`run --since REF` narrows mutation to whole files. Add `--changed-lines` to generate only mutants whose reported line range overlaps a line changed since `REF`. `changed-lines` still judges the report of that run, exiting nonzero if any changed-line mutant is undetected. Changed lines are the new side of the working tree against `REF`, every line of an untracked file, and every line of a file moved or renamed since `REF`, which counts as deleted and added. A mutant counts as undetected when its status is `Survived` or `NoCoverage`; mutants outside the changed lines never affect the result. A per-change run with zero generated mutants succeeds; a whole-project run with zero generated mutants fails the full verification gate.
+`run --since REF` narrows mutation to whole files. Add `--changed-lines` to generate only mutants whose reported line range overlaps a line changed since `REF`. `changed-lines` still judges the report of that run, exiting nonzero if any changed-line mutant is undetected. Changed lines are the new side of the working tree against `REF`, every line of an untracked file, and every line of a file moved or renamed since `REF`, which counts as deleted and added. A mutant counts as undetected when its status is `Survived` or `NoCoverage`; mutants outside the changed lines never affect the result. A changed-line mutant that is `Pending` is not undetected, but it keeps the gate from passing: with no undetected mutant the gate exits 1 instead of 0. A per-change run with zero generated mutants succeeds; a whole-project run with zero generated mutants fails the full verification gate.
 
 For a pre-push check, pass the point where the pushed range starts, for example the merge base with the upstream branch:
 
@@ -91,7 +93,7 @@ dotnet src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll changed-lines \
 | Exit code | Meaning |
 |---|---|
 | 0 | No mutant on a changed line is undetected, including when no mutant lies on a changed line |
-| 1 | The report cannot be read, or the diff against `REF` cannot be resolved |
+| 1 | The report cannot be read, the diff against `REF` cannot be resolved, or a mutant on a changed line is `Pending` while none is undetected |
 | 2 | At least one mutant on a changed line is undetected. Each is printed as `path:line:column status mutator: replacement` |
 
 ## Development

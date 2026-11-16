@@ -19,6 +19,7 @@ public sealed class VerdictVocabularyFacts
             new MutantVerdict.NoCoverage(),
             new MutantVerdict.CompileError(),
             new MutantVerdict.Ignored(),
+            new MutantVerdict.Unjudged(new UnjudgedCause.NotRun()),
         ];
         foreach (var verdict in verdicts)
         {

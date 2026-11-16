@@ -204,6 +204,11 @@ Microsoft.Testing.Platform の run は killer test の名前を返さないた�
 形式は `tests/Mutation.Tests/verifying/StrykerReportFacts.cs` が固定する。
 `reports/timings.json` は `TimingsReport.cs` が書き出し、`phases`、`counters`、`targets`、`mutants` を持つ。
 `phases` は build、mutate、compile、baseline、testing、total の段階別時間、`counters` は変異数、テスト数、score、worker の再起動回数、判定別件数、`targets` は対象別の内訳と中断、`mutants` は変異別の所要時間である。
+`mutation-report.json` と `timings.json` は、走行が全変異の判定を確定したかを `RunStateReport.cs` が組み立てる `run` に書く。
+`state` は `MutationRunResult.State` で、全件が確定していれば `completed`、取り消しで止まっていれば `interrupted`、競合で判定できなかった変異が残れば `unjudged` である。
+判定を確定できなかった変異は `MutantVerdict.Unjudged` で表し、報告の status は `Pending`、`statusReason` に理由を書く。
+検出にも未検出にも数えないので score の母数に入らず、`changed-lines` の判定は、未検出がなく未判定が残るときに合格と言わず失敗として返す。
+形式は `tests/Mutation.Tests/verifying/RunStateReportFacts.cs` が固定する。
 
 `changed-lines` command は、`run --since` が書いた報告を、`composition/adapters/ChangedLinesFromGit.cs` が返す変更行と突き合わせ、変わった行に重なる未検出の mutant を判定する。
 `Survived` と `NoCoverage` を未検出と数える。

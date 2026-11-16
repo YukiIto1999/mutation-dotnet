@@ -39,4 +39,11 @@ public abstract record PipelineFailure
     /// <param name="ReportPath">読もうとした報告の path</param>
     /// <param name="Reason">読めなかった理由</param>
     public sealed record ReportUnreadable(string ReportPath, string Reason) : PipelineFailure;
+
+    /// <summary>取り消しを受けて止まり、この対象は判定に至らなかった</summary>
+    public sealed record Interrupted : PipelineFailure;
+
+    /// <summary>変わった行に重なる変異に判定を確定できなかったものがあり、変わった行の合否を決められなかった</summary>
+    /// <param name="Count">判定を確定できなかった変異の件数</param>
+    public sealed record UnjudgedOnChangedLines(int Count) : PipelineFailure;
 }

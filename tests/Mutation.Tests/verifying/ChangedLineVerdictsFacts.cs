@@ -68,6 +68,23 @@ public sealed class ChangedLineVerdictsFacts
         await Assert.That(selected.Undetected).IsEmpty();
     }
 
+    /// <summary>判定を確定できなかった変異が、未検出と別に数えられること</summary>
+    [Test]
+    public async Task Unjudged_mutants_are_listed_apart_from_the_undetected()
+    {
+        RecordedMutant[] mutants =
+        [
+            Mutant("survived", "/repo/A.cs", 10, 10, new MutantVerdict.Survived()),
+            Mutant("pending", "/repo/A.cs", 10, 10, new MutantVerdict.Unjudged(new UnjudgedCause.NotRun())),
+            Mutant("elsewhere", "/repo/A.cs", 50, 50, new MutantVerdict.Unjudged(new UnjudgedCause.NotRun())),
+        ];
+
+        var selected = ChangedLineVerdicts.Select(mutants, LineTenOfA);
+
+        await Assert.That(selected.Undetected.Select(m => m.Id).ToArray()).IsEquivalentTo(["survived"]);
+        await Assert.That(selected.Unjudged.Select(m => m.Id).ToArray()).IsEquivalentTo(["pending"]);
+    }
+
     /// <summary>行の範囲と確定結果だけを指定した記録済みの変異</summary>
     private static RecordedMutant Mutant(string id, string path, int line, int endLine, MutantVerdict verdict) =>
         new(id, Path.GetFullPath(path), new SourceSpan(line, 1, endLine, 2), "BinaryOperatorMutator", "a - b", verdict);

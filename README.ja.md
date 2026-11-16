@@ -89,6 +89,12 @@ console 要約に加え、`<output>/reports/` へ 2 ファイルを書き出す�
 テストは表示名で示す。
 この指定では、Microsoft.Testing.Platform はテストを一件ずつ別の呼び出しで実行する。
 
+二つの報告は、走行が全 mutant の判定を確定したかを示す `run` を持つ。
+`state` は、全 mutant の判定が確定していれば `completed`、そうでなければ `interrupted` か `unjudged` である。
+`complete` は `completed` のときだけ真で、`unjudged` は判定のない mutant の件数、`unjudgedBy` はその理由別の内訳(`notRun`、`interrupted`、`contendedTimeout`)、`interruptedTargets` は判定に至らなかった対象の名前である。
+判定のない mutant は status が `Pending` で、`statusReason` を持つ。
+検出にも未検出にも数えないので、mutation score の母数に入らない。
+
 ## 変更行の判定
 
 `run --since REF` は、ファイル単位で変異対象を絞る。
@@ -97,6 +103,7 @@ console 要約に加え、`<output>/reports/` へ 2 ファイルを書き出す�
 変わった行は、作業木と `REF` の差分の新しい側の行、未追跡ファイルの全行、`REF` から移動か改名したファイルの全行である。
 移動と改名は、削除と追加として扱う。
 status が `Survived` か `NoCoverage` の mutant を未検出と数え、変わった行の外の mutant は結果に入れない。
+変わった行の mutant が `Pending` なら未検出とは数えないが、合格とも言えないので、未検出がなければ `changed-lines` は 0 でなく 1 で終わる。
 変更ごとの実行で生成が 0 件なら成功し、全量の実行で生成が 0 件なら全量の検証入口が失敗する。
 
 push 前の検査の例を示す。
@@ -115,7 +122,7 @@ dotnet src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll changed-lines \
 | 終了コード | 意味 |
 |---|---|
 | 0 | 変わった行の mutant に未検出なし。変わった行に mutant が一件もない場合を含む |
-| 1 | 報告を読めない、または `REF` との差分を解決できない |
+| 1 | 報告を読めない、`REF` との差分を解決できない、または変わった行の mutant に `Pending` があり未検出がない |
 | 2 | 変わった行の mutant に未検出が一件以上。各件を `path:line:column status mutator: replacement` で出力 |
 
 ## 開発

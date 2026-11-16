@@ -28,4 +28,11 @@ public sealed record TargetResult(
 
     /// <summary>検出されなかった変異の数。生存と被覆なしの合計</summary>
     public int UndetectedCount => Verdicts.Values.Count(v => v.IsUndetected);
+
+    /// <summary>判定を確定できなかった変異の数。検出にも未検出にも数えない</summary>
+    public int UnjudgedCount => Verdicts.Values.Count(v => v is MutantVerdict.Unjudged);
+
+    /// <summary>走行が止まって実行に至らなかった、または実行の途中だった変異があるか</summary>
+    public bool IsInterrupted =>
+        Verdicts.Values.Any(v => v is MutantVerdict.Unjudged { Cause: UnjudgedCause.NotRun or UnjudgedCause.Interrupted });
 }

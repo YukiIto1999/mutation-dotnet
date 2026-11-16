@@ -29,6 +29,7 @@ public static class TimingsReport
                 testingMs = result.Timings.TestingMs,
                 totalMs = result.Timings.TotalMs,
             },
+            run = RunStateReport.Describe(result),
             counters = new
             {
                 mutants = result.Completed.Sum(t => t.Mutants.Count),

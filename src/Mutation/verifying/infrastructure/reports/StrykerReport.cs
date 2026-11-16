@@ -40,6 +40,7 @@ public static class StrykerReport
             schemaVersion = "2",
             thresholds = new { high = 80, low = 60 },
             projectRoot,
+            run = RunStateReport.Describe(result),
             files,
         };
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? ".");
@@ -67,12 +68,20 @@ public static class StrykerReport
             killedBy = row is { Failed.Count: > 0 } ? Names(target, row.Failed) : killer,
             coveredBy = row is null ? null : Names(target, row.Planned),
             testsCompleted = row is null ? (int?)null : row.Planned.Count - row.NotRun.Count,
-            statusReason = row is { IsComplete: false }
-                ? $"Detection matrix incomplete; not run: {string.Join(", ", Names(target, row.NotRun))}"
-                : null,
+            statusReason = StatusReason(verdict, target, row),
             @static = mutant.InStaticContext,
         };
     }
+
+    /// <summary>判定を確定できなかった理由、なければ検出行列の未実行のテストを名指しする、変異の statusReason</summary>
+    private static string? StatusReason(MutantVerdict verdict, TargetResult target, DetectionRow? row) =>
+        verdict switch
+        {
+            MutantVerdict.Unjudged unjudged => RunStateReport.Reason(unjudged.Cause),
+            _ when row is { IsComplete: false } =>
+                $"Detection matrix incomplete; not run: {string.Join(", ", Names(target, row.NotRun))}",
+            _ => null,
+        };
 
     /// <summary>対象のテストの素性の並びと一致するテスト連番からの表示名の列</summary>
     private static string[] Names(TargetResult target, IReadOnlyList<TestIndex> indexes) =>

@@ -27,6 +27,14 @@ public static class ConsoleSummary
             builder.AppendLine(CultureInfo.InvariantCulture, $"{group.Key,-13} {group.Count(),6}");
         }
 
+        if (!result.IsComplete)
+        {
+            builder.AppendLine(
+                CultureInfo.InvariantCulture,
+                $"走行 {result.State}: 判定を確定できなかった変異 {result.UnjudgedCount} 件を Pending と報告し、score の母数に入れていない"
+            );
+        }
+
         builder.AppendLine(CultureInfo.InvariantCulture, $"mutation score {Percent(result.Score)}");
         var t = result.Timings;
         builder.AppendLine(
