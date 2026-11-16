@@ -5,5 +5,17 @@
   },
   "verify-push": {
     "seconds": 900
+  },
+  "regression-full": {
+    "seconds": 900,
+    "basis": "T3 の全量回帰(`devenv shell regression-full`)の強制停止の上限。中身は `verify` と E2E の 4 suite で、`verify-push` と同じ段を影響範囲で絞らずに回すので、`verify-push` の上限 900 秒を同じ値として置く。mutation 分析とは上限、取消、終了 status を共有しない。2026-11-15 に T2 から変更行の mutation を外した後の、この段だけの実測はまだ無い。最初の走行で所要時間を測り、この値と理由を決め直す。上限で止まった段は失敗と分けて未完了とし、終了 status 124 で終える。"
+  },
+  "mutation-select": {
+    "seconds": 1800,
+    "basis": "T3 の選択型の mutation 分析(`devenv shell mutation-select`、`--since <比較元> --changed-lines --with-baseline --concurrency 2` と `changed-lines` の判定)の強制停止の上限。12 論理 core の WSL2 の作業機で他の agent の処理が並走する条件の実測は、2026-11-16 に 1 file の変更から選んだ 7 mutant の走行が engine の合計 139 秒(build 8 秒、baseline 39 秒、testing 88 秒)で、build を含む走行全体が 146 秒、2026-11-07 の `--since --changed-lines` の 64 mutant の走行が合計 263 秒(baseline 39 秒、testing 214 秒、1 mutant あたり約 3.3 秒)、2026-10-02 の全量の 1,583 mutant の走行が合計 8,719 秒(1 mutant あたり約 5.5 秒)だった。build と baseline の固定費約 50 秒を除き 1 mutant 5.5 秒で見ると、1800 秒は約 300 mutant(engine 全量の約 2 割)の変更までを完走させる。これを超える変更の分析は上限で止め、timeout の生の status(124 か 137)を未完了として残し、比較元の記録を進めない。"
+  },
+  "verify-full": {
+    "seconds": 2760,
+    "basis": "`devenv shell verify-full` の外側の上限。全量回帰(regression-full、900 秒)と選択型の mutation 分析(mutation-select、1800 秒)を別の走行で順に回し、それぞれが自分の上限で止まる。外側の上限は二つの上限と、各走行の停止の猶予(`timeout --kill-after=30` の 30 秒ずつ)の和で、内側の上限が働く限り外側では止まらない。"
   }
 }
