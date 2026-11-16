@@ -58,6 +58,6 @@ public static class SnapshotReconstruction
         var tests = (document.Tests ?? [])
             .Select((t, index) => new TestCaseInfo(new TestIndex(index), t.Name, t.Ms, t.Passed))
             .ToArray();
-        return new TargetResult(targetName, mutants, verdicts, tests, TargetTimings.None, [], 0);
+        return new TargetResult(targetName, mutants, verdicts, tests, TargetTimings.None, [], 0, new Dictionary<MutantId, DetectionRow>());
     }
 }

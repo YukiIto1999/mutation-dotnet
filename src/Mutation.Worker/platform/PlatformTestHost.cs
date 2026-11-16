@@ -110,6 +110,11 @@ public sealed class PlatformTestHost : ITestHost
     public WorkerResponse Run(WorkerRequest.Run request)
     {
         var stopwatch = Stopwatch.StartNew();
+        if (request.AllFailures)
+        {
+            return RunEach(request, stopwatch);
+        }
+
         var uids = request.TestIds;
         if (uids.Count == 0)
         {
@@ -143,6 +148,52 @@ public sealed class PlatformTestHost : ITestHost
         return new WorkerResponse.RunCompleted(outcome, null, null, stopwatch.Elapsed.TotalMilliseconds, reached);
     }
 
+    /// <summary>失敗と完了をテスト単位で観測する一件ずつの起動による実行</summary>
+    /// <remarks>
+    /// 終了コードが失敗したテストを名指ししないための一件ずつの起動による帰属の確保
+    /// probe 回数のテストごとの数え直し
+    /// </remarks>
+    private WorkerResponse.RunCompleted RunEach(WorkerRequest.Run request, Stopwatch stopwatch)
+    {
+        if (!HostEnvironment.IsPreactivated)
+        {
+            accessor.Activate(request.MutantId, request.HitLimit ?? long.MaxValue);
+        }
+
+        var observation = new RunObservation();
+        var names = DisplayNames();
+        foreach (var uid in request.TestIds)
+        {
+            accessor.TakeHitCount();
+            var code = Invoke(["--filter-uid", uid, .. commonArguments]);
+            var tripped = accessor.TakeHitLimitTripped();
+            if (code == ExitZeroTests)
+            {
+                continue;
+            }
+
+            observation.Complete(uid);
+            if (code != 0)
+            {
+                observation.Fail(uid, names.GetValueOrDefault(uid, uid), tripped);
+            }
+        }
+
+        var reached = accessor.TakeReached();
+        if (!HostEnvironment.IsPreactivated)
+        {
+            accessor.Activate(-1, long.MaxValue);
+        }
+
+        return RunOutcomes.Completed(
+            observation,
+            allFailures: true,
+            observation.CompletedTestIds.Count,
+            stopwatch.Elapsed.TotalMilliseconds,
+            reached
+        );
+    }
+
     /// <inheritdoc />
     public void Dispose()
     {
@@ -150,6 +201,15 @@ public sealed class PlatformTestHost : ITestHost
 
     /// <summary>発見済みテストの取得。初回だけ子 process で発見する形</summary>
     private IReadOnlyList<DiscoveredTest> Discovered() => discovered ??= PlatformDiscovery.List(testAssembly);
+
+    /// <summary>初回の参照まで不在の uid から表示名への対応の控え</summary>
+    private Dictionary<string, string>? displayNames;
+
+    /// <summary>初回だけ発見済みテストから作る uid から表示名への対応</summary>
+    private Dictionary<string, string> DisplayNames() =>
+        displayNames ??= Discovered()
+            .DistinctBy(t => t.Uid, StringComparer.Ordinal)
+            .ToDictionary(t => t.Uid, t => t.DisplayName, StringComparer.Ordinal);
 
     /// <summary>実行体の entry point の呼び出しと終了コードの取得</summary>
     private int Invoke(string[] arguments)

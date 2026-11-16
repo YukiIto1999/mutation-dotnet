@@ -136,7 +136,8 @@ internal sealed class TargetRun(
                 baseline.Tests,
                 new TargetTimings(artifact.MutateMs, artifact.CompileMs, baselineMs, session.Clock.EndPhase()),
                 verdicts.Timings,
-                verdicts.WorkerRestarts
+                verdicts.WorkerRestarts,
+                verdicts.Detections
             )
         );
     }

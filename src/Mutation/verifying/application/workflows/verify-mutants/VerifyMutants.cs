@@ -30,7 +30,14 @@ public sealed class VerifyMutants(IWorkerRuns workerRuns, ISnapshots snapshots)
         var inherited = Inherited(request);
         var plans = schedule.Plans.Where(p => !inherited.ContainsKey(p.MutantId)).ToArray();
         var executed = await workerRuns
-            .ExecuteAsync(request.Launch, request.Baseline.Roster, plans, request.Execution.Concurrency, request.Progress)
+            .ExecuteAsync(
+                request.Launch,
+                request.Baseline.Roster,
+                plans,
+                request.Execution.Concurrency,
+                request.Execution.DetectionMatrix,
+                request.Progress
+            )
             .ConfigureAwait(false);
         executed = await RevalidateSurvivorsAsync(request, schedule, executed).ConfigureAwait(false);
         var verdicts = MergedVerdicts(request, schedule, inherited, executed);
@@ -46,7 +53,7 @@ public sealed class VerifyMutants(IWorkerRuns workerRuns, ISnapshots snapshots)
                 request.SnapshotPath
             )
         );
-        return new OrchestrationResult(verdicts, executed.Timings, executed.WorkerRestarts);
+        return new OrchestrationResult(verdicts, executed.Timings, executed.WorkerRestarts, executed.Detections);
     }
 
     /// <summary>後段が前段を上書きする、即時確定・継承・実行の判定の合流</summary>
@@ -131,7 +138,14 @@ public sealed class VerifyMutants(IWorkerRuns workerRuns, ISnapshots snapshots)
         }
 
         var revalidated = await workerRuns
-            .ExecuteAsync(request.Launch, request.Baseline.Roster, survivedPlans, request.Execution.Concurrency, request.Progress)
+            .ExecuteAsync(
+                request.Launch,
+                request.Baseline.Roster,
+                survivedPlans,
+                request.Execution.Concurrency,
+                request.Execution.DetectionMatrix,
+                request.Progress
+            )
             .ConfigureAwait(false);
         return executed.Overlaid(revalidated);
     }

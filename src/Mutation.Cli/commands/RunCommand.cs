@@ -24,6 +24,7 @@ public static class RunCommand
     /// <param name="ignoreMethods">その呼び出しの中を変異させない method 名。複数は `,` 区切り</param>
     /// <param name="excludeStatic">static 初期化でしか実行されない変異を対象外にする(Ignored として報告)</param>
     /// <param name="withBaseline">前回実行の保存からの、変わっていない変異の判定の継承</param>
+    /// <param name="detectionMatrix">前回の判定を継承せず変異ごとに被覆する全テストを実行する killedBy への全失敗の記録</param>
     /// <returns>成功なら 0、失敗なら 1、score が break-at 未満なら 2</returns>
     public static async Task<int> Run(
         string[] project,
@@ -39,7 +40,8 @@ public static class RunCommand
         string[]? ignoreOperators = null,
         string[]? ignoreMethods = null,
         bool excludeStatic = false,
-        bool withBaseline = false
+        bool withBaseline = false,
+        bool detectionMatrix = false
     )
     {
         if (project.Length == 0 || project.Length != testProject.Length)
@@ -63,7 +65,8 @@ public static class RunCommand
             ignoreOperators ?? [],
             ignoreMethods ?? [],
             Path.GetFullPath(output),
-            withBaseline
+            withBaseline,
+            detectionMatrix
         );
         var outcome = await BuildCore
             .Create()

@@ -3,7 +3,9 @@ using Xunit.Abstractions;
 
 namespace Mutation.Worker;
 
-/// <summary>変異検査の実行で最初の失敗を捉える受け口</summary>
+/// <summary>変異検査の実行で失敗と完了を捉える受け口</summary>
+/// <param name="accessor">変異 assembly の切替クラスへの操作</param>
+/// <param name="failFast">最初の失敗で実行を打ち切るか</param>
 public sealed class MutantRunSink(SwitchAccessor accessor, bool failFast) : IMessageSink
 {
     /// <summary>assembly 実行の完了を伝える合図</summary>
@@ -12,11 +14,8 @@ public sealed class MutantRunSink(SwitchAccessor accessor, bool failFast) : IMes
     /// <summary>実行を始めたテスト数</summary>
     public int ExecutedTests { get; private set; }
 
-    /// <summary>最初に失敗したテストの表示名。失敗がなければ不在</summary>
-    public string? KillerTest { get; private set; }
-
-    /// <summary>最初の失敗が probe 上限超過によるものか</summary>
-    public bool HitLimitExceeded { get; private set; }
+    /// <summary>観測した失敗と完了の記録</summary>
+    public RunObservation Observation { get; } = new();
 
     /// <inheritdoc />
     public bool OnMessage(IMessageSinkMessage message)
@@ -28,20 +27,20 @@ public sealed class MutantRunSink(SwitchAccessor accessor, bool failFast) : IMes
                 accessor.TakeHitCount();
                 break;
             case ITestFailed failed:
-                if (KillerTest is null)
-                {
-                    KillerTest = failed.Test.DisplayName;
-                    HitLimitExceeded = failed.Messages.Any(m =>
-                        m.Contains(InjectionContract.HitLimitMarker, StringComparison.Ordinal)
-                    );
-                }
-
+                Observation.Fail(
+                    failed.TestCase.UniqueID,
+                    failed.Test.DisplayName,
+                    failed.Messages.Any(m => m.Contains(InjectionContract.HitLimitMarker, StringComparison.Ordinal))
+                );
                 if (failFast)
                 {
                     Finished.Set();
                     return false;
                 }
 
+                break;
+            case ITestCaseFinished finished when !failFast:
+                Observation.Complete(finished.TestCase.UniqueID);
                 break;
             case ITestAssemblyFinished:
                 Finished.Set();

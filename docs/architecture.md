@@ -101,6 +101,17 @@ VSTest adapter は `ITestExecutor.Cancel` を使わず、最初の失敗を記�
 framework 内の並列は、xunit v2 で `MaxParallelThreads` を 1 にし、VSTest の run settings で無効にして、per-test の帰属と変異の活性化を一貫させる。
 基盤の三系統の判定一致は `tests/e2e/medium/frameworks/verify-frameworks.sh` が固定する。
 
+`--detection-matrix` を指定すると、CLI は `run` 指示の `AllFailures` を立て、worker は最初の失敗で打ち切らずに求められた全テストを実行する。
+xunit v2 と VSTest adapter は一回の実行の中でテストごとの失敗と完了を記録し、Microsoft.Testing.Platform はテストごとに entry point を呼んで失敗をテストへ帰属させる。
+記録の型は `src/Mutation.Worker/observation/RunObservation.cs` で、worker は失敗した全テストと結果を観測した全テストの識別子を `RunCompleted` で返す。
+`verifying/infrastructure/workers/DetectionRows.cs` がそれを変異ごとの `DetectionRow` へ写し、応答が無い run は求めた全テストを未実行とする。
+判定は最初の失敗で決まるので、既定の実行と同じ規則である。
+通常の被覆と static または ambient の被覆を両方持つ変異は、既定の実行では共有側で検出すれば隔離側を走らせないが、行列の実行では隔離側のテストも走らせ、`DetectionRows.Merge` で両方の行を一行へ合わせる。
+判定は共有側の検出のままである。
+検出行列は前回の判定から得られないため、この指定は `--with-baseline` の継承と再利用を止める。
+所在は `composition/operations/MutationTesting.cs` である。
+振る舞いは `tests/Mutation.Tests/verifying/TestingOrchestratorFacts.cs`、`DetectionRowsFacts.cs`、`tests/e2e/medium/detection-matrix/verify-detection-matrix.sh` が固定する。
+
 baseline は変異を全て不活性にした assembly でテストを一度実行する。
 テストごとに、結果、所要時間、被覆した変異、probe の呼び出し回数を集め、`verifying/infrastructure/workers/BaselineMapping.cs` が `BaselineProfile` へ写す。
 baseline の被覆収集は、テスト数と `--concurrency` に応じて最大 `テスト数 / 8` の worker に分担できる。
@@ -186,6 +197,11 @@ Microsoft.Testing.Platform の run は killer test の名前を返さないた�
 
 `reports/mutation-report.json` は mutation-testing-elements の report schema の書式で、`verifying/infrastructure/reports/StrykerReport.cs` が書き出す。
 変異の id は `<対象名>:<連番>` で修飾して対象をまたいで一意にする。
+`--detection-matrix` の実行では、検出行列の行を持つ変異が、失敗した全テストの表示名を `killedBy` へ、実行を求めたテストを `coveredBy` へ、結果を観測したテストの数を `testsCompleted` へ書く。
+未実行のテストが残った変異は `statusReason` でそのテストを名指しし、行列が完全でないことを示す。
+失敗したテストを特定できない検出は、既定の実行と同じ目印を `killedBy` に残す。
+行を持たない変異と既定の実行の報告には、これらの欄を書かない。
+形式は `tests/Mutation.Tests/verifying/StrykerReportFacts.cs` が固定する。
 `reports/timings.json` は `TimingsReport.cs` が書き出し、`phases`、`counters`、`targets`、`mutants` を持つ。
 `phases` は build、mutate、compile、baseline、testing、total の段階別時間、`counters` は変異数、テスト数、score、worker の再起動回数、判定別件数、`targets` は対象別の内訳と中断、`mutants` は変異別の所要時間である。
 
@@ -232,7 +248,7 @@ engine の `Result` と閉じた直和は、隣接 checkout の typemodeling-dot
 |---|---|
 | `tests/Mutation.Tests/` | ユニットテストと構造検査 |
 | `tests/Mutation.ScriptedWorker/` | 台本どおりに応える worker。共有 worker と隔離 process の応答を決め、`TestingOrchestratorFacts.cs` が使う |
-| `tests/e2e/medium/` | 判定カテゴリ、三つのテスト基盤、変更行の判定を実 process で検証する fixture と script |
+| `tests/e2e/medium/` | 判定カテゴリ、三つのテスト基盤、変更行の判定、検出行列を実 process で検証する fixture と script |
 | `tests/performance/` | 合成対象と実 project への測定 script |
 
 ## 保守の注意

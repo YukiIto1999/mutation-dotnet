@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Added
 
 - Versioned maintainer documentation under `docs/`, describing the current architecture, limitations and performance measurement procedure. Plans, investigations and experiment results belong in the ignored `work/` directory instead.
+- `run --detection-matrix` runs every covering test of each mutant instead of stopping at the first failing test, and records the detection matrix in `mutation-report.json`: every failing test in `killedBy`, the tests the mutant ran in `coveredBy`, and the number of observed results in `testsCompleted`. A mutant covered both by ordinary tests and by static or ambient execution also runs its isolated tests after the shared run detects it, so `killedBy` and `coveredBy` include the tests that detect it only in a fresh process. When a timeout or crash loses results, `statusReason` names the tests that did not run. Verdicts are still decided by the first failure, and runs without the option write the same report as before. The option disables `--with-baseline` inheritance, because previous verdicts carry no matrix. Library callers set `MutationRunOptions.DetectionMatrix`, which defaults to `false`.
 
 ### Changed
 

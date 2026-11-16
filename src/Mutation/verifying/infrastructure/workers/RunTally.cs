@@ -9,6 +9,8 @@ public sealed class RunTally(int total, Action<RunProgress> progress)
 {
     /// <summary>確定した判定の集まり</summary>
     private readonly ConcurrentDictionary<MutantId, MutantVerdict> verdicts = [];
+    /// <summary>変異ごとの検出行列の行の集まり</summary>
+    private readonly ConcurrentDictionary<MutantId, DetectionRow> detections = [];
     /// <summary>変異ごとの実行の記録</summary>
     private readonly ConcurrentBag<MutantTiming> timings = [];
     /// <summary>進行を通知する間隔</summary>
@@ -24,9 +26,22 @@ public sealed class RunTally(int total, Action<RunProgress> progress)
     /// <param name="executedTests">実行を始めたテスト数</param>
     /// <param name="elapsedMs">実行の所要時間</param>
     /// <param name="isolated">隔離 process での実行だったか</param>
-    public void Record(MutantPlan plan, MutantVerdict verdict, int executedTests, double elapsedMs, bool isolated)
+    /// <param name="detection">検出行列を求めた実行での検出行列の行</param>
+    public void Record(
+        MutantPlan plan,
+        MutantVerdict verdict,
+        int executedTests,
+        double elapsedMs,
+        bool isolated,
+        DetectionRow? detection
+    )
     {
         verdicts[plan.MutantId] = verdict;
+        if (detection is not null)
+        {
+            detections[plan.MutantId] = detection;
+        }
+
         timings.Add(new MutantTiming(plan.MutantId, elapsedMs, executedTests, isolated));
         var done = Interlocked.Increment(ref completed);
         if (done % reportEvery == 0 || done == total)
@@ -40,5 +55,5 @@ public sealed class RunTally(int total, Action<RunProgress> progress)
 
     /// <summary>ここまでの記録の集計</summary>
     /// <returns>この呼び出し分の判定と記録</returns>
-    public OrchestrationResult Result() => new(verdicts, timings.ToArray(), restarts);
+    public OrchestrationResult Result() => new(verdicts, timings.ToArray(), restarts, detections);
 }

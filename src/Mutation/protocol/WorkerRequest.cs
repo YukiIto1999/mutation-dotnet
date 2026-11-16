@@ -33,7 +33,9 @@ public abstract record WorkerRequest
     /// <param name="MutantId">活性化する変異の連番</param>
     /// <param name="TestIds">実行するテストの一意識別子の列</param>
     /// <param name="HitLimit">probe 呼び出し上限。環境変数で活性化済みの worker では不在</param>
-    public sealed record Run(int MutantId, IReadOnlyList<string> TestIds, long? HitLimit = null) : WorkerRequest;
+    /// <param name="AllFailures">最初の失敗で打ち切らず全テストの失敗と完了を返す実行の指定</param>
+    public sealed record Run(int MutantId, IReadOnlyList<string> TestIds, long? HitLimit = null, bool AllFailures = false)
+        : WorkerRequest;
 
     /// <summary>worker を終了する指示</summary>
     public sealed record Shutdown : WorkerRequest;

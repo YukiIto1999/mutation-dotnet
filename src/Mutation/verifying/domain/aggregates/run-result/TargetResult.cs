@@ -10,6 +10,7 @@ namespace Mutation.Verifying.Domain;
 /// <param name="Timings">段階別の所要時間</param>
 /// <param name="MutantTimings">変異ごとの所要時間の記録</param>
 /// <param name="WorkerRestarts">時間切れなどで worker を作り直した回数</param>
+/// <param name="Detections">検出行列を求めた実行での変異の連番から検出行列の行への対応</param>
 public sealed record TargetResult(
     string Name,
     IReadOnlyList<Mutant> Mutants,
@@ -17,7 +18,8 @@ public sealed record TargetResult(
     IReadOnlyList<TestCaseInfo> Tests,
     TargetTimings Timings,
     IReadOnlyList<MutantTiming> MutantTimings,
-    int WorkerRestarts
+    int WorkerRestarts,
+    IReadOnlyDictionary<MutantId, DetectionRow> Detections
 )
 {
     /// <summary>検出された変異の数。テスト失敗と時間超過の合計</summary>

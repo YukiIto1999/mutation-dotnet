@@ -22,16 +22,29 @@ public sealed class TestingOrchestrator : IDisposable
     /// <summary>隔離 process での実行係</summary>
     private readonly IsolationRuns isolationRuns;
 
+    /// <summary>変異ごとに全テストを実行し検出行列の行を残すか</summary>
+    private readonly bool detectionMatrix;
+
+    /// <summary>検出行列を求める実行で、共有側の検出を隔離側の行と合わせて確定するまで預ける変異ごとの結果</summary>
+    private readonly ConcurrentDictionary<MutantId, SharedKill> sharedKills = new();
+
     /// <summary>分配に要る情報を束ねる構築</summary>
     /// <param name="launch">worker の起動情報</param>
     /// <param name="roster">連番順のテストの名簿</param>
     /// <param name="progress">進行を伝える通知先</param>
-    public TestingOrchestrator(WorkerLaunchPlan launch, TestRoster roster, Action<RunProgress> progress)
+    /// <param name="detectionMatrix">変異ごとに全テストを実行し検出行列の行を残すか</param>
+    public TestingOrchestrator(
+        WorkerLaunchPlan launch,
+        TestRoster roster,
+        Action<RunProgress> progress,
+        bool detectionMatrix
+    )
     {
         this.launch = launch;
         this.roster = roster;
         this.progress = progress;
-        isolationRuns = new IsolationRuns(launch, roster);
+        this.detectionMatrix = detectionMatrix;
+        isolationRuns = new IsolationRuns(launch, roster, detectionMatrix);
     }
 
     /// <inheritdoc />
@@ -68,7 +81,7 @@ public sealed class TestingOrchestrator : IDisposable
             client ??= await StartSharedAsync().ConfigureAwait(false);
             if (client is null)
             {
-                tally.Record(plan, new MutantVerdict.TimedOut(), 0, 0, isolated: false);
+                tally.Record(plan, new MutantVerdict.TimedOut(), 0, 0, isolated: false, Row(plan.Execution.ResidentSlice.TestOrder, null));
                 continue;
             }
 
@@ -79,7 +92,20 @@ public sealed class TestingOrchestrator : IDisposable
         while (isolated.TryDequeue(out var plan))
         {
             var outcome = await isolationRuns.RunAsync(plan).ConfigureAwait(false);
-            tally.Record(plan, outcome.Verdict, outcome.ExecutedTests, outcome.ElapsedMs, isolated: true);
+            if (sharedKills.TryRemove(plan.MutantId, out var kill))
+            {
+                tally.Record(
+                    plan,
+                    kill.Verdict,
+                    kill.ExecutedTests + outcome.ExecutedTests,
+                    kill.ElapsedMs + outcome.ElapsedMs,
+                    isolated: true,
+                    DetectionRows.Merge(kill.Row, outcome.Detection!)
+                );
+                continue;
+            }
+
+            tally.Record(plan, outcome.Verdict, outcome.ExecutedTests, outcome.ElapsedMs, isolated: true, outcome.Detection);
         }
     }
 
@@ -113,12 +139,17 @@ public sealed class TestingOrchestrator : IDisposable
     {
         var (order, budget) = plan.Execution.ResidentSlice;
         var stopwatch = Stopwatch.StartNew();
-        var request = new WorkerRequest.Run(plan.MutantId.Value, order.Select(roster.Id).ToArray(), HitLimits.For(roster, order));
+        var request = new WorkerRequest.Run(
+            plan.MutantId.Value,
+            order.Select(roster.Id).ToArray(),
+            HitLimits.For(roster, order),
+            detectionMatrix
+        );
         var exchange = await client.SendAsync(request, VerdictInterpretation.Deadline(budget)).ConfigureAwait(false);
         var settled = VerdictInterpretation.Settle(exchange, client.HasExited);
         if (exchange.Response is not WorkerResponse.RunCompleted completed)
         {
-            tally.Record(plan, settled, 0, stopwatch.Elapsed.TotalMilliseconds, isolated: false);
+            tally.Record(plan, settled, 0, stopwatch.Elapsed.TotalMilliseconds, isolated: false, Row(order, exchange.Response));
             client.Dispose();
             tally.CountRestart();
             return await StartSharedAsync().ConfigureAwait(false);
@@ -143,12 +174,43 @@ public sealed class TestingOrchestrator : IDisposable
             return client;
         }
 
-        tally.Record(plan, settled, completed.ExecutedTests ?? order.Count, stopwatch.Elapsed.TotalMilliseconds, isolated: false);
+        // 行列は検出の有無でなく検出する全テストを求めるため、共有側の検出で隔離側のテストを省かない
+        if (detectionMatrix && settled is MutantVerdict.Killed && plan.Execution is MutantExecution.ResidentThenIsolated)
+        {
+            sharedKills[plan.MutantId] = new SharedKill(
+                settled,
+                DetectionRows.From(order, roster, completed),
+                completed.ExecutedTests ?? order.Count,
+                stopwatch.Elapsed.TotalMilliseconds
+            );
+            isolated.Enqueue(plan with { Execution = plan.Execution.ToIsolated() });
+            return client;
+        }
+
+        tally.Record(
+            plan,
+            settled,
+            completed.ExecutedTests ?? order.Count,
+            stopwatch.Elapsed.TotalMilliseconds,
+            isolated: false,
+            Row(order, completed)
+        );
         return client;
     }
+
+    /// <summary>検出行列を求める実行での run の応答からの行</summary>
+    private DetectionRow? Row(IReadOnlyList<TestIndex> order, WorkerResponse? response) =>
+        detectionMatrix ? DetectionRows.From(order, roster, response) : null;
 
     /// <summary>活性の変異の枝へ一度も入らずに出た生存か検出かの判定</summary>
     /// <remarks>先行する検査が process 内に残した状態(memo、遅延初期化、static cache)が変異の経路を飛ばすか、汚れた状態がテストを落とした疑いがあり、新規 process で確かめ直す</remarks>
     private static bool IsUnreached(WorkerResponse.RunCompleted completed, MutantVerdict settled) =>
         completed.Reached == false && settled is MutantVerdict.Survived or MutantVerdict.Killed;
 }
+
+/// <summary>隔離側の行と合わせるまで預ける共有側の検出</summary>
+/// <param name="Verdict">共有側で確定した検出</param>
+/// <param name="Row">共有側の検出行列の行</param>
+/// <param name="ExecutedTests">共有側で実行を始めたテスト数</param>
+/// <param name="ElapsedMs">共有側の所要時間</param>
+internal sealed record SharedKill(MutantVerdict Verdict, DetectionRow Row, int ExecutedTests, double ElapsedMs);
