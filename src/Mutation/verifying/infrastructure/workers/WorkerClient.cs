@@ -118,7 +118,7 @@ public sealed class WorkerClient : IDisposable
         if (finished != readTask)
         {
             Kill();
-            return new WorkerExchange(null, output.Take());
+            return new WorkerExchange(null, output.Take(), DeadlineExpired: !cancellation.IsCancellationRequested);
         }
 
         var line = await readTask.ConfigureAwait(false);

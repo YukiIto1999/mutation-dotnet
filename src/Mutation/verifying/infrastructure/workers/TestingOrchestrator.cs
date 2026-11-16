@@ -9,7 +9,7 @@ using Mutation.Protocol;
 namespace Mutation.Verifying.Infrastructure.Workers;
 
 /// <summary>worker 群への変異計画の分配と判定の回収</summary>
-public sealed class TestingOrchestrator : IDisposable
+public sealed partial class TestingOrchestrator : IDisposable
 {
     /// <summary>worker の起動情報</summary>
     private readonly WorkerLaunchPlan launch;
@@ -26,6 +26,12 @@ public sealed class TestingOrchestrator : IDisposable
     /// <summary>変異ごとに全テストを実行し検出行列の行を残すか</summary>
     private readonly bool detectionMatrix;
 
+    /// <summary>run 応答を待つ上限の決め方</summary>
+    private readonly RunDeadlines deadlines;
+
+    /// <summary>期限を超えた変異の、検出か競合による遅れかの確かめ</summary>
+    private readonly TimeoutAdjudication adjudication;
+
     /// <summary>検出行列を求める実行で、共有側の検出を隔離側の行と合わせて確定するまで預ける変異ごとの結果</summary>
     private readonly ConcurrentDictionary<MutantId, SharedKill> sharedKills = new();
 
@@ -34,18 +40,22 @@ public sealed class TestingOrchestrator : IDisposable
     /// <param name="roster">連番順のテストの名簿</param>
     /// <param name="progress">進行を伝える通知先</param>
     /// <param name="detectionMatrix">変異ごとに全テストを実行し検出行列の行を残すか</param>
+    /// <param name="deadlines">run 応答を待つ上限の決め方</param>
     public TestingOrchestrator(
         WorkerLaunchPlan launch,
         TestRoster roster,
         Action<RunProgress> progress,
-        bool detectionMatrix
+        bool detectionMatrix,
+        RunDeadlines deadlines
     )
     {
         this.launch = launch;
         this.roster = roster;
         this.progress = progress;
         this.detectionMatrix = detectionMatrix;
-        isolationRuns = new IsolationRuns(launch, roster, detectionMatrix);
+        this.deadlines = deadlines;
+        isolationRuns = new IsolationRuns(launch, roster, detectionMatrix, deadlines);
+        adjudication = new TimeoutAdjudication(isolationRuns, roster, detectionMatrix);
     }
 
     /// <inheritdoc />
@@ -154,7 +164,7 @@ public sealed class TestingOrchestrator : IDisposable
             HitLimits.For(roster, order),
             detectionMatrix
         );
-        var exchange = await client.SendAsync(request, VerdictInterpretation.Deadline(budget), cancellation).ConfigureAwait(false);
+        var exchange = await client.SendAsync(request, deadlines.For(budget), cancellation).ConfigureAwait(false);
         if (cancellation.IsCancellationRequested)
         {
             client.Dispose();
@@ -165,9 +175,9 @@ public sealed class TestingOrchestrator : IDisposable
         var settled = VerdictInterpretation.Settle(exchange, client.HasExited);
         if (exchange.Response is not WorkerResponse.RunCompleted completed)
         {
-            tally.Record(plan, settled, 0, stopwatch.Elapsed.TotalMilliseconds, isolated: false, Row(order, exchange.Response));
             client.Dispose();
             tally.CountRestart();
+            await RecordLostRunAsync(plan, exchange, settled, stopwatch.Elapsed.TotalMilliseconds, tally, cancellation).ConfigureAwait(false);
             return null;
         }
 
@@ -220,32 +230,6 @@ public sealed class TestingOrchestrator : IDisposable
 
         tally.Record(plan, settled, completed.ExecutedTests ?? order.Count, elapsedMs, isolated: false, Row(order, completed));
         return client;
-    }
-
-    /// <summary>隔離 process での一計画の実行と記録。取り消しを受けたら結果を採らない</summary>
-    private async Task RunIsolatedAsync(MutantPlan plan, RunTally tally, CancellationToken cancellation)
-    {
-        var outcome = await isolationRuns.RunAsync(plan, cancellation).ConfigureAwait(false);
-        if (cancellation.IsCancellationRequested)
-        {
-            tally.Abandon(plan, new UnjudgedCause.Interrupted());
-            return;
-        }
-
-        if (sharedKills.TryRemove(plan.MutantId, out var kill))
-        {
-            tally.Record(
-                plan,
-                kill.Verdict,
-                kill.ExecutedTests + outcome.ExecutedTests,
-                kill.ElapsedMs + outcome.ElapsedMs,
-                isolated: true,
-                DetectionRows.Merge(kill.Row, outcome.Detection!)
-            );
-            return;
-        }
-
-        tally.Record(plan, outcome.Verdict, outcome.ExecutedTests, outcome.ElapsedMs, isolated: true, outcome.Detection);
     }
 
     /// <summary>検出行列を求める実行での run の応答からの行</summary>

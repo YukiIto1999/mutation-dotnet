@@ -142,16 +142,27 @@ static 初期化の文脈にある変異と、テスト境界の外か static �
 無限走行は probe の呼び出し回数の上限で即断する。
 上限は `verifying/domain/services/HitLimits.cs` が、実行するテストの baseline の probe 回数の最大値に 200 を掛けて 100,000 を足した値にする。
 上限を超えると、注入クラスが目印付きの例外を投げて worker が `hitlimit` を返し、判定は `TimedOut` になる。
-probe を通らないループと、例外を握り潰す包括的な catch は、実行時間の予算に応答の猶予 5 秒を足した期限と worker の終了で捕らえる。
+probe を通らないループと、例外を握り潰す包括的な catch は、実行時間の予算に応答の猶予 5 秒(`RunDeadlines.cs`)を足した期限と worker の終了で捕らえる。
 `HitLimits` の値は `tests/Mutation.Tests/verifying/VerdictVocabularyFacts.cs` が固定する。
 
 判定は `verifying/infrastructure/workers/VerdictInterpretation.cs` が決める。
 baseline で成功したテストが失敗すれば `Killed`、全て成功すれば `Survived` になる。
 応答が無く worker が終了していれば `Killed` で、検出の経緯は `(process crash)` とする。
 応答が無く worker が生きている場合と、worker が `Failed` を返した場合は `TimedOut` になる。
+期限切れで止めた worker は、終了済みでも `Killed` でなく `TimedOut` として扱う(`WorkerExchange.DeadlineExpired`)。
+probe 上限の超過による `TimedOut` は時間によらないので、そのまま検出に数える。
 `Killed` と `TimedOut` は score の検出に数えられるので、worker の異常終了と失敗も検出に入る。
 Microsoft.Testing.Platform の run は killer test の名前を返さないため、`TerminalOutput.cs` が端末出力の `failed <名前> (<所要時間>)` の行から取り出し、取り出せなければ `(unknown test)` とする。
 `tests/Mutation.Tests/verifying/VerdictInterpretationFacts.cs` が固定する。
+
+期限切れの `TimedOut` は、競合で遅れただけの変異を検出に数えないよう、`TimeoutAdjudication.cs` が確かめ直す。
+期限は基準実行の所要時間から決めた固定の値なので、機が基準より遅ければ無限走行でない変異も超えるためである。
+超えた変異ごとに、変異のない同じテスト列を新規 process で走らせる対照の実行(`IsolationRuns.ControlAsync`)の所要時間が、その変異の予算に収まるかを `TimeoutJudgement.cs` が判定する。
+収まらないか終わらなければ、対照のテストさえ予算の外なので、`UnjudgedCause.ContendedTimeout` の未判定にし、検出にも未検出にも数えない。
+収まれば新規 process で変異をもう一度実行し、終われば再実行の判定を採り、また期限を超えたときだけ検出に数える `TimedOut` にする。
+Stryker.NET、StrykerJS、PIT は倍率と定数の固定の期限で超過をそのまま timeout とし、忙しい機への手当ては定数を人が大きくすることだけなので、この確かめ直しは持たない。
+費用は、期限を超えた変異ごとの新規 process 二本と再実行一回である。
+振る舞いは `tests/Mutation.Tests/verifying/TestingOrchestratorTimeoutFacts.cs` と `TimeoutJudgementFacts.cs` が固定する。
 
 ## 取り消し
 

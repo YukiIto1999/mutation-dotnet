@@ -26,7 +26,7 @@ public sealed class WorkerRuns : IWorkerRuns
         ExecutionControl control
     )
     {
-        using var orchestrator = new TestingOrchestrator(launch, roster, progress, detectionMatrix);
+        using var orchestrator = new TestingOrchestrator(launch, roster, progress, detectionMatrix, RunDeadlines.Standard);
         return await orchestrator.ExecuteAsync(plans, concurrency, control).ConfigureAwait(false);
     }
 }

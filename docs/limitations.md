@@ -62,9 +62,12 @@ README の制約事項に加えて、source から確かめられるものを置
   実行全体を包む期限は持たず、外側の期限は SIGTERM などの信号で与える。
   build と変異の生成は取り消しの要求を受けても終えるまで走り、その後で対象は判定に至らなかったものとして止まる。
   所在は `Mutation/verifying/infrastructure/workers/WorkerClient.cs` と `Mutation/verifying/application/workflows/run-mutation-testing/TargetRun.cs` である。
-- worker の異常終了は `Killed`、worker の `Failed` 応答と応答の期限切れは `TimedOut` に分類され、どちらも score の検出に数える。
+- worker の異常終了は `Killed`、worker の `Failed` 応答と共有 worker の初期化の失敗は `TimedOut` に分類され、どちらも score の検出に数える。
   件数だけでは、テストが変異を検出した場合と区別できない。
-  所在は `Mutation/verifying/infrastructure/workers/VerdictInterpretation.cs` と `Mutation/verifying/domain/aggregates/run-result/TargetResult.cs` である。
+  期限切れだけは、競合による遅れと区別して未判定にする。
+  対照の実行が予算に収まり、再実行も期限を超えた場合に限って、期限切れを検出に数える。
+  競合が一時で、対照の実行が収まった後に再び遅れた場合は、検出と区別できない。
+  所在は `Mutation/verifying/infrastructure/workers/VerdictInterpretation.cs`、`TimeoutAdjudication.cs` と `Mutation/verifying/domain/aggregates/run-result/TargetResult.cs` である。
 - `--exclude-static` が外す変異は、static 初期化でしか実行されない変異より広い。
   構文上 static の文脈にある変異は、通常の被覆テストがあっても外す。
   所在は `Mutation/verifying/domain/services/MutantScheduler.cs` の `Plan` である。

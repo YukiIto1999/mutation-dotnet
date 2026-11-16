@@ -86,6 +86,9 @@ Each verdict is also appended to `<output>/work/<target>/snapshot.verdicts.jsonl
 | 1 | A target failed, or the arguments or the build are wrong |
 | 2 | The mutation score is below `--break-at` |
 | 129, 130, 143 | The run was stopped by `SIGHUP`, `SIGINT` or `SIGTERM` (128 plus the signal number) and wrote a partial report |
+| 3 | The run finished, but some mutants have no verdict (`run.state` is `unjudged`) |
+
+A mutant whose tests exceed their time budget is not counted as detected at once. The budget is fixed from the baseline durations (twice the covering tests plus two seconds, and five seconds of grace), so a machine busier than the baseline also exceeds it. After an expiry the engine runs the same tests without the mutant in a fresh process: when that control run does not fit the budget either, the mutant is `Pending` with `unjudgedBy.contendedTimeout` instead of `Timeout`. When it fits, the mutant runs once more in a fresh process; its verdict is taken if it finishes, and only a second expiry is a `Timeout`. A probe-count limit is independent of time and stays a `Timeout`. Stryker.NET, StrykerJS and PIT keep the fixed deadline and leave a busy machine to a larger constant tuned by hand.
 
 ## Changed-line gate
 

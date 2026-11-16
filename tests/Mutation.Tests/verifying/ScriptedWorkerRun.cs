@@ -51,6 +51,9 @@ internal sealed class ScriptedWorkerRun : IDisposable
     /// <summary>worker の起動情報</summary>
     private readonly WorkerLaunchPlan launch;
 
+    /// <summary>run 応答を待つ上限の決め方。期限を縮めた検査が置き換える</summary>
+    public RunDeadlines Deadlines { get; init; } = RunDeadlines.Standard;
+
     /// <summary>台本の書き込みと起動情報の組み立て</summary>
     /// <param name="script">指示のキーに対する応答の台本</param>
     public ScriptedWorkerRun(params (string Key, WorkerResponse Answer)[] script)
@@ -136,7 +139,7 @@ internal sealed class ScriptedWorkerRun : IDisposable
     )
     {
         using var cancellation = new CancellationTokenSource();
-        using var orchestrator = new TestingOrchestrator(launch, roster, _ => { }, detectionMatrix: false);
+        using var orchestrator = new TestingOrchestrator(launch, roster, _ => { }, detectionMatrix: false, Deadlines);
         var running = orchestrator.ExecuteAsync(plans, concurrency: 1, new ExecutionControl(settled, cancellation.Token));
         await CancelWhenAsync(cancellation, reached);
         var result = await running;
@@ -152,7 +155,7 @@ internal sealed class ScriptedWorkerRun : IDisposable
     {
         using var cancellation = new CancellationTokenSource();
         await cancellation.CancelAsync();
-        using var orchestrator = new TestingOrchestrator(launch, roster, _ => { }, detectionMatrix: false);
+        using var orchestrator = new TestingOrchestrator(launch, roster, _ => { }, detectionMatrix: false, Deadlines);
         var result = await orchestrator.ExecuteAsync(plans, concurrency: 1, new ExecutionControl((_, _) => { }, cancellation.Token));
         var calls = await ReadJournalAsync();
         return new ScriptedExecution(result, calls, await StillRunningAsync(calls.Select(call => call.Pid).Distinct().ToArray()));
@@ -224,7 +227,7 @@ internal sealed class ScriptedWorkerRun : IDisposable
         MutantPlan[] plans
     )
     {
-        using var orchestrator = new TestingOrchestrator(launch, roster, _ => { }, detectionMatrix);
+        using var orchestrator = new TestingOrchestrator(launch, roster, _ => { }, detectionMatrix, Deadlines);
         var result = await orchestrator.ExecuteAsync(plans, concurrency: 1, control);
         var calls = await ReadJournalAsync();
         var surviving = await StillRunningAsync(calls.Select(call => call.Pid).Distinct().ToArray());

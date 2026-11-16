@@ -115,6 +115,14 @@ build と mutant の生成は、取り消しの要求を受けても終えるま
 | 1 | 対象が失敗した、または引数か build が誤っている |
 | 2 | mutation score が `--break-at` を下回った |
 | 129、130、143 | `SIGHUP`、`SIGINT`、`SIGTERM`(128 に信号番号を足した値)で止まり、途中の報告を書いた |
+| 3 | 走行は終わったが、判定のない mutant が残った(`run.state` が `unjudged`) |
+
+テストが予算の時間を超えた mutant は、すぐには検出に数えない。
+予算は基準実行の所要時間から決めた固定の値(被覆するテストの 2 倍に 2 秒と、猶予 5 秒)なので、基準より忙しい機でも超える。
+超えた後、mutant のない同じテストを新規 process で走らせ、その対照の実行も予算に収まらなければ、`Timeout` でなく `Pending` にして `unjudgedBy.contendedTimeout` へ数える。
+収まれば mutant を新規 process でもう一度実行し、終われば再実行の判定を採り、二度目も超えたときだけ `Timeout` とする。
+probe 回数の上限は時間によらないので、`Timeout` のままである。
+Stryker.NET、StrykerJS、PIT は固定の期限のままで、忙しい機には人が大きくする定数で対処する。
 
 ## 変更行の判定
 

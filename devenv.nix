@@ -265,6 +265,7 @@
     case $engine in
       0) ;;
       124 | 137) finish "$engine" incomplete "未完了: 上限 $limit 秒で分析を止めた" ;;
+      3) finish "$engine" incomplete "未完了: 競合で遅れた timeout を判定できない mutant が残った(reportRun を見る)" ;;
       *)
         if grep -qF -- "--since の差分を解決できない" "$out/engine.log"; then
           finish "$engine" diff-failed "不成立: engine が比較元 $base からの差分を取得できない"
