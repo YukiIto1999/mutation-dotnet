@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- `mutation-select` no longer falls back to the merge-base with the default branch when it has neither a record of a completed analysis nor an upstream. It uses the HEAD at that moment as the base and records it in `.mutation-output/select/analyzed-commit`, so later runs measure from that commit even if the first run does not finish. Going back to the default branch made the first run analyse every change since the branch point instead of the changes since the previous analysis. `selection.json` states in `baseSource` and in the first entry of `unanalyzed` that source before that HEAD is out of scope of the selected analysis; a question that needs it is answered with `mutation-full`. A base that could not be decided no longer fails the run, because HEAD is always the last choice; `diff-failed` remains for a diff that cannot be read.
+
 ## [0.5.0] - 2026-11-16
 
 ### Added

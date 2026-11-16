@@ -57,7 +57,9 @@ T3 の各走行の上限と根拠は [`tiergate.json`](tiergate.json) の `regre
 上限で止まった走行は未完了として、timeout の生の終了 status(124 か 137)を残す。
 
 `mutation-select` の比較元は、前回完了した分析が `.mutation-output/select/analyzed-commit` に記録した commit である。
-記録が無ければ upstream との merge-base、upstream も無ければ既定 branch との merge-base を使う。
+記録が無ければ upstream との merge-base(未 push の変更)、upstream も無ければ既定 branch まで遡らず、導入時点の HEAD を比較元にして同じ `analyzed-commit` へ記録する。
+既定 branch まで遡ると、記録の無い初回に前回の分析からの変更ではなく分岐からの全変更を分析することになるため遡らない。
+導入時点の HEAD より前の source は選択型の分析の対象外として、`selection.json` の `baseSource` と未分析の範囲に記録する。全量が要る問いには `mutation-full` を使う。
 比較元と作業木の差分と未追跡 file のうち、内容が変わった `src/Mutation` の file の一覧は候補として記録するだけで、選択には使わない。
 engine は依存先と逆依存から対象を選べない([#1](https://github.com/YukiIto1999/mutation-dotnet/issues/1))ので、変わった file の変わっていない行、生成対象の依存先と逆依存、削除した file の変更前の参照、`src/Mutation` の外の production、production でない変更入力の影響は、未分析の範囲として `selection.json` に記録する。
 差分を取得できない場合は不成立(`diff-failed`)、変更が無い場合は変更なし(`no-change`)、候補はあるが変異できる箇所が無い場合は `no-mutant`、上限で止まった場合は未完了(`incomplete`)として区別する。
@@ -67,6 +69,7 @@ engine は依存先と逆依存から対象を選べない([#1](https://github.c
 分析ごとに `.mutation-output/select/runs/<UTC 時刻>-<HEAD>/` を作って上書きせずに残し、比較元と HEAD を持つ `selection.json`、生の報告(`reports/`)、`changed-lines` の出力と終了 status、未検出 mutant ごとの記録 `undetected.json` を置く。
 `undetected.json` は mutant ごとに、`changed-lines` が未検出として出したか(`onChangedLine`、変更行の gate があれば止めていた push か)と、後から書く原因(`cause`、architecture-standard の `structure/tests/methods.md` の原因表)、根拠(`causeEvidence`)、重大度(`severity`)の欄を持つ。
 分析が完了すると HEAD を次回の比較元として記録し、不成立と未完了の場合は記録を進めない。
+ただし導入時点の HEAD は、走行が完了しなくても次の走行が同じ commit から測るよう、走行の前に記録する。
 選択の結果は全量の分析ではなく、`selection.json` の `scope` は `selected` である。
 
 予算を超えた段は失敗として扱い、より安い検証へ置き換えるか後の段へ移す。

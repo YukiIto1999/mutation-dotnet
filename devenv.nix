@@ -145,7 +145,9 @@
   '';
 
   # T3 の mutation 分析(gate にしない): 比較元からの変更部分を engine の --since --changed-lines で選ぶ選択型の分析
-  # 比較元は前回完了した分析の commit で 記録が無ければ upstream か既定 branch との merge-base
+  # 比較元は前回完了した分析の commit(記録)で 記録が無ければ upstream との merge-base で どちらも無ければ導入時点の HEAD
+  # 既定 branch まで遡らない 遡ると記録の無い初回に 前回の分析からの変更でなく分岐からの全変更を分析することになるため
+  # 導入時点の HEAD を使った走行は それより前の source を選択型の分析の対象外として selection.json の baseSource と未分析の範囲へ記録し 全量が要る問いには mutation-full を使う
   # 変更部分は engine が選ぶ変わった行に重なる mutant で 影響部分(依存先と逆依存)は engine に選択の機能が無い(#1)ため未分析の範囲として記録
   # 変わった行の判定は changed-lines の生の終了 status で残し 未検出(2)と分析の不成立(1、上限切れ)を分ける
   # 上限は tiergate.json の mutation-select.seconds で 上限で止まった分析は timeout の生の status のまま未完了として残す
@@ -160,7 +162,7 @@
     deadline=$((SECONDS + limit))
     head=$(git rev-parse HEAD) || { echo "mutation-select: HEAD を読めない" >&2; exit 1; }
     heading="## $(date +%F) mutation-select $(git rev-parse --short HEAD)"
-    base="" base_source="" engine="" mutants="" gate=""
+    base="" base_source="" adoption="" engine="" mutants="" gate=""
     # 分析ごとの記録は上書きしない(比較元と HEAD、生の報告、未検出 mutant ごとの変更行との重なりと後から書く原因と重大度の欄)
     run_dir="$out/runs/$(date -u +%Y%m%dT%H%M%SZ)-$(git rev-parse --short HEAD)"
     mkdir -p "$run_dir"
@@ -171,7 +173,7 @@
     # 選択の記録と生の終了 status の保存 失敗は前回と同じ結果なら backlog へ記録し直さない
     finish() {
       printf '%s\n' "$1" > "$out/exit-status"
-      jq -n --arg head "$head" --arg base "$base" --arg baseSource "$base_source" \
+      jq -n --arg head "$head" --arg base "$base" --arg baseSource "$base_source" --arg adoption "$adoption" \
         --arg outcome "$2" --arg summary "$3" --argjson limit "$limit" \
         --arg engine "$engine" --arg mutants "$mutants" --arg gate "$gate" \
         --rawfile candidates "$out/candidates.txt" \
@@ -184,13 +186,13 @@
            selection: "engine の --since --changed-lines が、比較元と作業木の差分と未追跡 file のうち src/Mutation の変わった行に重なる mutant だけを生成する",
            changedLines: "生成した mutant の判定は changed-lines --report --since base の出力(runs/*/changed-lines.txt)と未検出の記録(runs/*/undetected.json)に残す",
            changedLinesExitStatus: ($gate | tonumber? // null),
-           unanalyzed: [
+           unanalyzed: ((if $adoption == "" then [] else [$adoption] end) + [
              "変更した file のうち変わった行に重ならない箇所",
              "生成対象の依存先と逆依存の consumer",
              "削除した file の変更前の参照から影響する箇所",
              "src/Mutation の外の production(Mutation.Cli、Mutation.Worker)",
              "production でない変更入力(テスト、契約、設定、依存の版、生成器)が検出力や振る舞いを変える production の箇所"
-           ],
+           ]),
            unanalyzedReason: "依存関係と変更入力から影響する production の箇所を選ぶ機能が engine に無い(https://github.com/YukiIto1999/mutation-dotnet/issues/1)",
            engineExitStatus: ($engine | tonumber? // null),
            reportRun: ($report[0].run // null),
@@ -209,6 +211,7 @@
         rm -f "$out/failed-stage"
       fi
       echo "mutation-select: $3(選択型の分析で全量ではない。終了 status $1、記録 $out/selection.json)"
+      [ -z "$adoption" ] || echo "mutation-select: 範囲外: $adoption"
       exit "$1"
     }
 
@@ -224,21 +227,22 @@
       timeout --kill-after=30 "$left" "$@"
     }
 
+    # 前回完了した分析の commit か導入時点の HEAD(記録) → upstream との merge-base → 導入時点の HEAD の順で比較元を選ぶ
     recorded=$(cat "$out/analyzed-commit" 2>/dev/null || true)
     missing="分析の記録が無く"
-    [ -z "$recorded" ] || missing="記録した分析の commit $recorded から HEAD との merge-base を得られず"
+    [ -z "$recorded" ] || missing="記録した commit $recorded から HEAD との merge-base を得られず"
     if [ -n "$recorded" ] && base=$(git merge-base "$recorded" HEAD 2>/dev/null); then
-      base_source="前回完了した分析の commit $recorded(HEAD との merge-base)"
+      base_source="記録した commit $recorded(前回完了した分析か導入時点の HEAD)と HEAD との merge-base"
     elif upstream=$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null) \
       && base=$(git merge-base "$upstream" HEAD); then
       base_source="$missing、upstream $upstream との merge-base"
-    elif default=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null) \
-      && base=$(git merge-base "$default" HEAD); then
-      base_source="$missing、upstream も無く、既定 branch $default との merge-base"
     else
-      base=""
-      base_source="$missing、upstream と既定 branch からも比較元を得られない"
-      finish 1 diff-failed "不成立: 比較元を決められず差分を取得できない"
+      # 記録も upstream も無ければ既定 branch まで遡らず HEAD を比較元にする。この走行が完了しなくても
+      # 次の走行が同じ commit から測るよう、導入時点の HEAD は先に記録する
+      base=$head
+      base_source="$missing、upstream も無いので、導入時点の HEAD $head を比較元にした(既定 branch まで遡らない)"
+      adoption="導入時点の HEAD $head より前の source(選択型の分析の対象外で、全量が要る問いには mutation-full を使う)"
+      printf '%s\n' "$head" > "$out/analyzed-commit"
     fi
 
     # 候補は engine の --since と同じ範囲(比較元と作業木の差分と未追跡 file)の記録で 生成対象の選択には使わない
