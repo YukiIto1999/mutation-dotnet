@@ -8,11 +8,13 @@ namespace Mutation.Verifying.Application;
 /// <param name="Layout">出力 directory 配下の置き場の取り決め</param>
 /// <param name="Progress">進行を伝える通知先</param>
 /// <param name="Clock">段階と全体の所要時間の計測</param>
+/// <param name="Cancellation">取り消しの要求</param>
 public sealed record PipelineSession(
     RunRequest Request,
     RunLayout Layout,
     Action<RunProgress> Progress,
-    PhaseClock Clock
+    PhaseClock Clock,
+    CancellationToken Cancellation
 );
 
 /// <summary>段階と全体の所要時間の計測</summary>

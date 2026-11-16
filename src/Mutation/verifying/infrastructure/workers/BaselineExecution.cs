@@ -12,10 +12,15 @@ public static class BaselineExecution
     /// <summary>worker を並べたテスト分担での被覆収集モードの実行</summary>
     /// <param name="launch">worker の起動情報</param>
     /// <param name="concurrency">同時に走らせる worker 数</param>
+    /// <param name="cancellation">取り消しの要求。要求を受けたら worker を止めて失敗として返す</param>
     /// <returns>成功なら被覆とテストの素性、失敗なら理由</returns>
-    public static async Task<Result<BaselineProfile, PipelineFailure>> RunAsync(WorkerLaunchPlan launch, int concurrency)
+    public static async Task<Result<BaselineProfile, PipelineFailure>> RunAsync(
+        WorkerLaunchPlan launch,
+        int concurrency,
+        CancellationToken cancellation
+    )
     {
-        var opened = await OpenAsync(launch).ConfigureAwait(false);
+        var opened = await OpenAsync(launch, cancellation).ConfigureAwait(false);
         if (opened.IsFailed(out var openFailure, out var openedWorker))
         {
             return openFailure;
@@ -26,7 +31,7 @@ public static class BaselineExecution
         var lanes = Math.Clamp(concurrency, 1, Math.Max(1, allIds.Count / 8));
         var shards = Shard(allIds, lanes);
         var collections = await Task.WhenAll(
-                shards.Select((shard, index) => CollectAsync(launch, index == 0 ? firstClient : null, shard))
+                shards.Select((shard, index) => CollectAsync(launch, index == 0 ? firstClient : null, shard, cancellation))
             )
             .ConfigureAwait(false);
         var responses = new List<WorkerResponse.Baselined>(collections.Length);
@@ -47,12 +52,13 @@ public static class BaselineExecution
 
     /// <summary>先頭 worker の起動と全テストの一意識別子の発見</summary>
     private static async Task<Result<(WorkerClient, IReadOnlyList<string>), PipelineFailure>> OpenAsync(
-        WorkerLaunchPlan launch
+        WorkerLaunchPlan launch,
+        CancellationToken cancellation
     )
     {
         var client = StartCoverageWorker(launch);
 
-        var init = await InitAsync(client, launch).ConfigureAwait(false);
+        var init = await InitAsync(client, launch, cancellation).ConfigureAwait(false);
         if (init is not null)
         {
             client.Dispose();
@@ -60,7 +66,7 @@ public static class BaselineExecution
         }
 
         var discovered = await client
-            .SendAsync(new WorkerRequest.Discover(), TimeSpan.FromMinutes(5))
+            .SendAsync(new WorkerRequest.Discover(), TimeSpan.FromMinutes(5), cancellation)
             .ConfigureAwait(false);
         if (discovered.Response is WorkerResponse.Discovered { TestIds.Count: > 0 } listed)
         {
@@ -82,20 +88,21 @@ public static class BaselineExecution
     private static async Task<Result<WorkerResponse.Baselined, PipelineFailure>> CollectAsync(
         WorkerLaunchPlan launch,
         WorkerClient? existing,
-        IReadOnlyList<string> shard
+        IReadOnlyList<string> shard,
+        CancellationToken cancellation
     )
     {
         var client = existing ?? StartCoverageWorker(launch);
 
         try
         {
-            if (existing is null && await InitAsync(client, launch).ConfigureAwait(false) is { } initFailure)
+            if (existing is null && await InitAsync(client, launch, cancellation).ConfigureAwait(false) is { } initFailure)
             {
                 return Result.Failed<PipelineFailure>(initFailure);
             }
 
             var baseline = await client
-                .SendAsync(new WorkerRequest.Baseline(shard), TimeSpan.FromHours(2))
+                .SendAsync(new WorkerRequest.Baseline(shard), TimeSpan.FromHours(2), cancellation)
                 .ConfigureAwait(false);
             if (baseline.Response is not WorkerResponse.Baselined baselined)
             {
@@ -103,7 +110,7 @@ public static class BaselineExecution
                 return Failure(reason);
             }
 
-            await client.SendAsync(new WorkerRequest.Shutdown(), TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+            await client.SendAsync(new WorkerRequest.Shutdown(), TimeSpan.FromSeconds(10), CancellationToken.None).ConfigureAwait(false);
             return Result.Succeeded(baselined);
         }
         finally
@@ -126,9 +133,9 @@ public static class BaselineExecution
         );
 
     /// <summary>init 指示の送信。成功なら不在、失敗なら理由</summary>
-    private static async Task<PipelineFailure?> InitAsync(WorkerClient client, WorkerLaunchPlan launch)
+    private static async Task<PipelineFailure?> InitAsync(WorkerClient client, WorkerLaunchPlan launch, CancellationToken cancellation)
     {
-        var init = await client.SendAsync(WorkerRequests.Init(launch), TimeSpan.FromMinutes(2)).ConfigureAwait(false);
+        var init = await client.SendAsync(WorkerRequests.Init(launch), TimeSpan.FromMinutes(2), cancellation).ConfigureAwait(false);
         return init.Response switch
         {
             WorkerResponse.Opened => null,

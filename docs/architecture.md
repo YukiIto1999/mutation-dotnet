@@ -153,6 +153,23 @@ baseline で成功したテストが失敗すれば `Killed`、全て成功す�
 Microsoft.Testing.Platform の run は killer test の名前を返さないため、`TerminalOutput.cs` が端末出力の `failed <名前> (<所要時間>)` の行から取り出し、取り出せなければ `(unknown test)` とする。
 `tests/Mutation.Tests/verifying/VerdictInterpretationFacts.cs` が固定する。
 
+## 取り消し
+
+`run` は `src/Mutation.Cli/commands/TerminationSignals.cs` で SIGHUP、SIGINT、SIGTERM を受け、最初の一回を取り消しの要求(`CancellationToken`)に変える。
+二度目の要求は既定の動作へ譲り、process を強制的に終える。
+要求は `RunMutationTesting.ExecuteAsync` から `TargetRun`、`VerifyMutants`、`IWorkerRuns` の `ExecutionControl` を通って、`TestingOrchestrator` と `WorkerClient` に届く。
+`WorkerClient.SendAsync` は、応答を待つ間に要求を受けると worker process を殺して返す。
+`TestingOrchestrator` は、要求の後に新しい変異へ取りかからず、実行中だった変異の結果を採らない。
+その結果を採ると、止めるために殺した worker の終了が `(process crash)` の検出になるためである。
+実行中だった変異は `UnjudgedCause.Interrupted`、取りかからなかった変異は `UnjudgedCause.NotRun` の未判定になり、`RunTally.Abandon` が記録する。
+`VerifyMutants` は確定した判定と未判定を保存に畳み、`RunMutationTesting` は止まった走行でも報告を書き出す。
+取り消しの要求を受けた後に始まる対象は、`PipelineFailure.Interrupted` で判定に至らなかった対象として記録する。
+baseline は worker を止めて失敗として返し、`TargetRun` が `Interrupted` に直す。
+build と変異の生成は要求を受けても終えるまで走り、その後の段階の前で止まる。
+終了コードは `RunCommand.cs` が決め、取り消しで止まった走行は信号に対応する 129(SIGHUP)、130(SIGINT)、143(SIGTERM)である。
+SIGKILL は受け取れないので、止まった走行の判定は追記の記録(継承の節)だけが残す。
+振る舞いは `tests/Mutation.Tests/verifying/TestingOrchestratorCancellationFacts.cs` と `BaselineExecutionFacts.cs` が固定し、信号を受けた走行全体は `tests/e2e/medium/interruption/verify-interruption.sh` が固定する。
+
 ## 継承
 
 `--with-baseline` を指定すると、対象ごとに `work/<対象名>/snapshot.json` へ判定を保存し、次の実行で再利用する。
@@ -264,8 +281,8 @@ engine の `Result` と閉じた直和は、隣接 checkout の typemodeling-dot
 | 場所 | 内容 |
 |---|---|
 | `tests/Mutation.Tests/` | ユニットテストと構造検査 |
-| `tests/Mutation.ScriptedWorker/` | 台本どおりに応える worker。共有 worker と隔離 process の応答を決め、`TestingOrchestratorFacts.cs` が使う |
-| `tests/e2e/medium/` | 判定カテゴリ、三つのテスト基盤、変更行の判定、検出行列を実 process で検証する fixture と script |
+| `tests/Mutation.ScriptedWorker/` | 台本どおりに応える worker。共有 worker と隔離 process の応答を決め、応答の前に待たせることも、応えないこともできる。`TestingOrchestratorFacts.cs` と `TestingOrchestratorCancellationFacts.cs` が使う |
+| `tests/e2e/medium/` | 判定カテゴリ、三つのテスト基盤、変更行の判定、検出行列、SIGTERM と SIGKILL で止めた走行を実 process で検証する fixture と script |
 | `tests/performance/` | 合成対象と実 project への測定 script |
 
 ## 保守の注意

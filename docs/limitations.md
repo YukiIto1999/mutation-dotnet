@@ -58,9 +58,10 @@ README の制約事項に加えて、source から確かめられるものを置
 - probe の記録は、同期を持たない共有の配列と計数器に書く。
   テストが複数の thread を使う場合の被覆と probe 回数の帰属が正確かは、確かめていない。
   所在は `Mutation/mutating/infrastructure/roslyn/MutantSwitchSource.cs` の `Template` である。
-- worker への各指示には応答の期限があり、期限を超えると worker process を終了する。
-  build と git の差分取得を含む実行全体を包む、取り消しと期限の契約は確認できない。
-  所在は `Mutation/verifying/infrastructure/workers/WorkerClient.cs` である。
+- worker への各指示には応答の期限があり、期限を超えるか取り消しの要求を受けると worker process を終了する。
+  実行全体を包む期限は持たず、外側の期限は SIGTERM などの信号で与える。
+  build と変異の生成は取り消しの要求を受けても終えるまで走り、その後で対象は判定に至らなかったものとして止まる。
+  所在は `Mutation/verifying/infrastructure/workers/WorkerClient.cs` と `Mutation/verifying/application/workflows/run-mutation-testing/TargetRun.cs` である。
 - worker の異常終了は `Killed`、worker の `Failed` 応答と応答の期限切れは `TimedOut` に分類され、どちらも score の検出に数える。
   件数だけでは、テストが変異を検出した場合と区別できない。
   所在は `Mutation/verifying/infrastructure/workers/VerdictInterpretation.cs` と `Mutation/verifying/domain/aggregates/run-result/TargetResult.cs` である。

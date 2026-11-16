@@ -38,7 +38,7 @@ public sealed class VerifyMutants(IWorkerRuns workerRuns, ISnapshots snapshots)
                 request.Execution.Concurrency,
                 request.Execution.DetectionMatrix,
                 request.Progress,
-                new ExecutionControl(journal.Append)
+                new ExecutionControl(journal.Append, request.Cancellation)
             )
             .ConfigureAwait(false);
         executed = await RevalidateSurvivorsAsync(request, schedule, executed).ConfigureAwait(false);
@@ -106,7 +106,7 @@ public sealed class VerifyMutants(IWorkerRuns workerRuns, ISnapshots snapshots)
         OrchestrationResult executed
     )
     {
-        if (!request.Execution.ValidateSurvivors)
+        if (!request.Execution.ValidateSurvivors || request.Cancellation.IsCancellationRequested)
         {
             return executed;
         }
@@ -132,7 +132,7 @@ public sealed class VerifyMutants(IWorkerRuns workerRuns, ISnapshots snapshots)
                 request.Execution.Concurrency,
                 request.Execution.DetectionMatrix,
                 request.Progress,
-                ExecutionControl.None
+                ExecutionControl.None with { Cancellation = request.Cancellation }
             )
             .ConfigureAwait(false);
         return executed.Overlaid(revalidated);
@@ -150,6 +150,7 @@ public sealed class VerifyMutants(IWorkerRuns workerRuns, ISnapshots snapshots)
 /// <param name="MutatedAssemblyPath">変異 assembly の絶対 path</param>
 /// <param name="SnapshotPath">保存 file の絶対 path</param>
 /// <param name="Progress">進行を伝える通知先</param>
+/// <param name="Cancellation">取り消しの要求</param>
 public sealed record VerificationRequest(
     IReadOnlyList<Mutant> Mutants,
     IReadOnlySet<MutantId> CompileErrorIds,
@@ -160,5 +161,6 @@ public sealed record VerificationRequest(
     string? Fingerprint,
     string MutatedAssemblyPath,
     string SnapshotPath,
-    Action<RunProgress> Progress
+    Action<RunProgress> Progress,
+    CancellationToken Cancellation
 );

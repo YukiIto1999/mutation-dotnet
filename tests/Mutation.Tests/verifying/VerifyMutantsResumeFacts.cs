@@ -94,7 +94,8 @@ public sealed class VerifyMutantsResumeFacts
             SnapshotFixture.Fingerprint,
             fixture.MutatedAssemblyPath,
             fixture.SnapshotPath,
-            _ => { }
+            _ => { },
+            CancellationToken.None
         );
 
     /// <summary>受けた計画を記録し、決めた挙動で応える worker 実行の port</summary>
@@ -104,8 +105,11 @@ public sealed class VerifyMutantsResumeFacts
         public List<int[]> Requested { get; } = [];
 
         /// <inheritdoc />
-        public Task<Result<BaselineProfile, PipelineFailure>> ObserveAsync(WorkerLaunchPlan launch, int concurrency) =>
-            throw new NotSupportedException();
+        public Task<Result<BaselineProfile, PipelineFailure>> ObserveAsync(
+            WorkerLaunchPlan launch,
+            int concurrency,
+            CancellationToken cancellation
+        ) => throw new NotSupportedException();
 
         /// <inheritdoc />
         public Task<OrchestrationResult> ExecuteAsync(

@@ -15,11 +15,15 @@ namespace Mutation.ScriptedWorker;
 /// journal.log の列は pid・指示・実行形・変異の連番・テスト識別子・打ち切り方で区切りは縦棒
 /// 打ち切り方は全失敗の記録を求めた run が all で最初の失敗で打ち切る run が first
 /// 検出かつ未到達の応答を返した共有 worker は後続の run も失敗させる汚染状態
+/// delays.json は同じキーの応答の前に待つ ms で、負なら応えない。run と discover だけが読む。応答を待たせる検査のための台本
 /// </remarks>
 internal sealed class ScriptedBehavior
 {
     /// <summary>台本の file 名</summary>
     private const string ScriptFileName = "script.json";
+
+    /// <summary>応答の前に待つ時間の台本の file 名</summary>
+    private const string DelayFileName = "delays.json";
 
     /// <summary>受けた指示の記録の file 名</summary>
     private const string JournalFileName = "journal.log";
@@ -43,6 +47,9 @@ internal sealed class ScriptedBehavior
     /// <summary>実行形と変異の連番から run 応答への対応</summary>
     private readonly Dictionary<string, WorkerResponse> script;
 
+    /// <summary>台本のキーから応答の前に待つ ms への対応。負なら応えない</summary>
+    private readonly Dictionary<string, int> delaysMs;
+
     /// <summary>受けた指示の記録の path</summary>
     private readonly string journalPath;
 
@@ -51,10 +58,12 @@ internal sealed class ScriptedBehavior
 
     /// <summary>独立した実行の台本と記録先の束ね</summary>
     /// <param name="script">指示のキー別の応答</param>
+    /// <param name="delaysMs">指示のキー別の応答前の待ち</param>
     /// <param name="journalPath">この実行だけが使う記録の path</param>
-    private ScriptedBehavior(Dictionary<string, WorkerResponse> script, string journalPath)
+    private ScriptedBehavior(Dictionary<string, WorkerResponse> script, Dictionary<string, int> delaysMs, string journalPath)
     {
         this.script = script;
+        this.delaysMs = delaysMs;
         this.journalPath = journalPath;
     }
 
@@ -67,7 +76,11 @@ internal sealed class ScriptedBehavior
         var script =
             JsonSerializer.Deserialize<Dictionary<string, WorkerResponse>>(json, Serializer)
             ?? throw new InvalidOperationException("台本が空");
-        return new ScriptedBehavior(script, Path.Combine(resultsDirectory, JournalFileName));
+        var delayPath = Path.Combine(resultsDirectory, DelayFileName);
+        var delays = File.Exists(delayPath)
+            ? JsonSerializer.Deserialize<Dictionary<string, int>>(File.ReadAllText(delayPath), Serializer) ?? []
+            : [];
+        return new ScriptedBehavior(script, delays, Path.Combine(resultsDirectory, JournalFileName));
     }
 
     /// <summary>一指示の記録と応答</summary>
@@ -97,6 +110,7 @@ internal sealed class ScriptedBehavior
     private async Task<WorkerResponse> DiscoverAsync()
     {
         await JournalAsync("discover", NoValue, NoValue, [], NoValue);
+        await DelayAsync(DiscoverKey);
         return script.TryGetValue(DiscoverKey, out var scripted) ? scripted : new WorkerResponse.Failed("台本にない discover");
     }
 
@@ -138,9 +152,21 @@ internal sealed class ScriptedBehavior
         }
 
         var key = $"{mode}:{run.MutantId}";
+        await DelayAsync(key);
         var answer = script.TryGetValue(key, out var scripted) ? scripted : new WorkerResponse.Failed($"台本にない run: {key}");
         polluted = answer is WorkerResponse.RunCompleted { Outcome: WorkerContract.OutcomeKilled, Reached: false };
         return answer;
+    }
+
+    /// <summary>台本が指す待ち。負なら、殺されるまで応えない</summary>
+    /// <param name="key">指示のキー</param>
+    /// <returns>待ちを終えたことを表す task</returns>
+    private async Task DelayAsync(string key)
+    {
+        if (delaysMs.TryGetValue(key, out var milliseconds))
+        {
+            await Task.Delay(milliseconds < 0 ? Timeout.Infinite : milliseconds);
+        }
     }
 
     /// <summary>実行ごとの排他で保護した受信指示の追記</summary>

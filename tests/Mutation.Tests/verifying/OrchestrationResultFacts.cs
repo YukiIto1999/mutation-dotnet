@@ -34,6 +34,29 @@ public sealed class OrchestrationResultFacts
         await Assert.That(merged.WorkerRestarts).IsEqualTo(3);
     }
 
+    /// <summary>後続で判定を確定できなかった変異が、前の判定と検出行列の行を失わないこと</summary>
+    [Test]
+    public async Task Overlaid_keeps_the_earlier_verdict_and_row_of_a_mutant_the_later_run_left_unjudged()
+    {
+        var first = new OrchestrationResult(
+            new Dictionary<MutantId, MutantVerdict> { [new MutantId(0)] = new MutantVerdict.Survived() },
+            [new MutantTiming(new MutantId(0), 10, 1)],
+            0,
+            new Dictionary<MutantId, DetectionRow> { [new MutantId(0)] = Row(failed: []) }
+        );
+        var later = new OrchestrationResult(
+            new Dictionary<MutantId, MutantVerdict> { [new MutantId(0)] = new MutantVerdict.Unjudged(new UnjudgedCause.Interrupted()) },
+            [],
+            0,
+            new Dictionary<MutantId, DetectionRow> { [new MutantId(0)] = new DetectionRow([new TestIndex(0)], [], [new TestIndex(0)]) }
+        );
+
+        var merged = first.Overlaid(later);
+
+        await Assert.That(merged.Verdicts[new MutantId(0)]).IsEqualTo(new MutantVerdict.Survived());
+        await Assert.That(merged.Detections[new MutantId(0)].IsComplete).IsTrue();
+    }
+
     /// <summary>二件のテストを計画し未実行を残さない検出行列の行</summary>
     /// <param name="failed">失敗したテストの連番</param>
     /// <returns>指定の失敗を持つ行</returns>

@@ -95,6 +95,27 @@ console 要約に加え、`<output>/reports/` へ 2 ファイルを書き出す�
 判定のない mutant は status が `Pending` で、`statusReason` を持つ。
 検出にも未検出にも数えないので、mutation score の母数に入らない。
 
+## 走行の中断
+
+`run` は `SIGINT`、`SIGTERM`、`SIGHUP` を受ける。
+最初の信号で走行を取り消し、実行中の worker を止め、新しい mutant に取りかからず、確定した判定を `run.state` を `interrupted` にして `mutation-report.json` と `timings.json` に書く。
+信号を受けたときに実行していた mutant と、取りかからなかった mutant は `Pending` で、`statusReason` がどちらかを示す。
+判定に至らなかった対象は `run.interruptedTargets` に載る。
+二度目の信号は、process を直ちに終える。
+build と mutant の生成は、取り消しの要求を受けても終えるまで走る。
+
+判定は確定するたびに `<output>/work/<target>/snapshot.verdicts.jsonl` にも追記するので、受け取れない `SIGKILL` で殺された走行も、確定した判定を残す。
+続きは同じ command に `--with-baseline` を付けて実行する。
+確定した判定を継承し、`Pending` の mutant だけを検査する。
+`--detection-matrix` の走行は継承しないので、この方法で続きを実行できない。
+
+| `run` の終了コード | 意味 |
+|---|---|
+| 0 | 全 mutant の判定が確定し、対象の失敗がなく、score が `--break-at` を満たす |
+| 1 | 対象が失敗した、または引数か build が誤っている |
+| 2 | mutation score が `--break-at` を下回った |
+| 129、130、143 | `SIGHUP`、`SIGINT`、`SIGTERM`(128 に信号番号を足した値)で止まり、途中の報告を書いた |
+
 ## 変更行の判定
 
 `run --since REF` は、ファイル単位で変異対象を絞る。
@@ -131,7 +152,7 @@ dotnet src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll changed-lines \
 
 - `devenv shell verify`(2 分以内、commit の前)は、analyzer の警告をエラー扱いにした build と、ユニットテストを実行する。
   build は関数の認知的複雑度(SonarAnalyzer の S3776、上限 15)も判定する。
-- `devenv shell verify-push`(15 分以内、push の前)は、`verify` と、フィクスチャへの E2E 検証(判定カテゴリ、3 つのテスト基盤、変更行の判定、検出行列)を実行する。
+- `devenv shell verify-push`(15 分以内、push の前)は、`verify` と、フィクスチャへの E2E 検証(判定カテゴリ、3 つのテスト基盤、変更行の判定、検出行列、`SIGTERM` と `SIGKILL` で止めた走行)を実行する。
   自身のエンジンへの mutation testing は実行しない。
 - `devenv shell verify-full`(gate にしない、release の前)は、`regression-full` の後に `mutation-select` を、それぞれ [tiergate.json](tiergate.json) に宣言した上限で止まる別の走行で実行し、終了 status は `regression-full` のものにする。
 - `devenv shell regression-full`(15 分以内)は、`verify` と E2E 検証を変更で絞らず全て実行し、終了 status と失敗した段を `.mutation-output/regression-full/` へ残し、前回に無かった失敗した段を、追跡外の作業台帳 `work/backlog.md` へ追記する。

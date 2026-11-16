@@ -14,19 +14,20 @@ public sealed record OrchestrationResult(
     IReadOnlyDictionary<MutantId, DetectionRow> Detections
 )
 {
-    /// <summary>判定と検出行列の行を後続で上書きし記録と回数を合算する後続実行の重ね合わせ</summary>
+    /// <summary>判定と検出行列の行を後続で上書きし記録と回数を合算する後続実行の重ね合わせ。後続で判定を確定できなかった変異は、前の判定と行を残す</summary>
     /// <param name="later">同じ変異の一部を実行し直した後続の集計</param>
     /// <returns>両方の実行を反映した集計</returns>
     public OrchestrationResult Overlaid(OrchestrationResult later)
     {
+        var settled = later.Verdicts.Where(pair => pair.Value is not MutantVerdict.Unjudged).ToArray();
         var merged = new Dictionary<MutantId, MutantVerdict>(Verdicts);
-        foreach (var (id, verdict) in later.Verdicts)
+        foreach (var (id, verdict) in settled)
         {
             merged[id] = verdict;
         }
 
         var detections = new Dictionary<MutantId, DetectionRow>(Detections);
-        foreach (var (id, row) in later.Detections)
+        foreach (var (id, row) in later.Detections.Where(pair => settled.Any(s => s.Key == pair.Key)))
         {
             detections[id] = row;
         }

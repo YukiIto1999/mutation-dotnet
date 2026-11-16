@@ -58,6 +58,22 @@ public sealed class RunTally(int total, Action<RunProgress> progress, Action<Mut
         }
     }
 
+    /// <summary>判定を確定できなかった変異の記録。確定した件数にも、確定の通知にも数えない</summary>
+    /// <param name="plan">判定を確定できなかった変異計画</param>
+    /// <param name="cause">確定できなかった理由</param>
+    public void Abandon(MutantPlan plan, UnjudgedCause cause) =>
+        verdicts[plan.MutantId] = new MutantVerdict.Unjudged(cause);
+
+    /// <summary>取りかからなかった計画の、実行に至らなかった未判定としての記録</summary>
+    /// <param name="plans">取りかからなかった変異計画</param>
+    public void AbandonAll(IEnumerable<MutantPlan> plans)
+    {
+        foreach (var plan in plans)
+        {
+            Abandon(plan, new UnjudgedCause.NotRun());
+        }
+    }
+
     /// <summary>worker を作り直した回数の加算</summary>
     public void CountRestart() => Interlocked.Increment(ref restarts);
 

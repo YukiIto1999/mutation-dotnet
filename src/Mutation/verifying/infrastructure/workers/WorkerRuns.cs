@@ -9,8 +9,11 @@ namespace Mutation.Verifying.Infrastructure.Workers;
 public sealed class WorkerRuns : IWorkerRuns
 {
     /// <inheritdoc />
-    public Task<Result<BaselineProfile, PipelineFailure>> ObserveAsync(WorkerLaunchPlan launch, int concurrency) =>
-        BaselineExecution.RunAsync(launch, concurrency);
+    public Task<Result<BaselineProfile, PipelineFailure>> ObserveAsync(
+        WorkerLaunchPlan launch,
+        int concurrency,
+        CancellationToken cancellation
+    ) => BaselineExecution.RunAsync(launch, concurrency, cancellation);
 
     /// <inheritdoc />
     public async Task<OrchestrationResult> ExecuteAsync(

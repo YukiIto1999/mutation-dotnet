@@ -20,14 +20,24 @@ public sealed class IsolationRuns(WorkerLaunchPlan launch, TestRoster roster, bo
     private readonly SemaphoreSlim gate = new(ConcurrentIsolations, ConcurrentIsolations);
 
     /// <summary>一計画の隔離実行。同時実行は絞られる形</summary>
+    /// <remarks>取り消しを受けたら、待っていた実行には取りかからず、実行中の process は止める。その結果は採らない</remarks>
     /// <param name="plan">実行する変異計画</param>
+    /// <param name="cancellation">取り消しの要求</param>
     /// <returns>確定結果と実行の記録</returns>
-    public async Task<IsolationOutcome> RunAsync(MutantPlan plan)
+    public async Task<IsolationOutcome> RunAsync(MutantPlan plan, CancellationToken cancellation)
     {
-        await gate.WaitAsync().ConfigureAwait(false);
         try
         {
-            return await RunOnceAsync(plan).ConfigureAwait(false);
+            await gate.WaitAsync(cancellation).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return Interrupted(plan.Execution.IsolatedSlice.TestOrder);
+        }
+
+        try
+        {
+            return await RunOnceAsync(plan, cancellation).ConfigureAwait(false);
         }
         finally
         {
@@ -39,7 +49,7 @@ public sealed class IsolationRuns(WorkerLaunchPlan launch, TestRoster roster, bo
     public void Dispose() => gate.Dispose();
 
     /// <summary>新規 worker の起動から判定確定までの一巡</summary>
-    private async Task<IsolationOutcome> RunOnceAsync(MutantPlan plan)
+    private async Task<IsolationOutcome> RunOnceAsync(MutantPlan plan, CancellationToken cancellation)
     {
         var (order, budget) = plan.Execution.IsolatedSlice;
         var stopwatch = Stopwatch.StartNew();
@@ -49,7 +59,7 @@ public sealed class IsolationRuns(WorkerLaunchPlan launch, TestRoster roster, bo
             [InjectionContract.HitLimitEnvironmentVariable] = HitLimits.For(roster, order).ToString(CultureInfo.InvariantCulture),
         };
         using var client = WorkerClient.Start(launch.WorkerDllPath, launch.ResultsDirectory, environment);
-        var init = await client.SendAsync(WorkerRequests.Init(launch), TimeSpan.FromMinutes(2)).ConfigureAwait(false);
+        var init = await client.SendAsync(WorkerRequests.Init(launch), TimeSpan.FromMinutes(2), cancellation).ConfigureAwait(false);
         if (init.Response is not WorkerResponse.Opened)
         {
             return new IsolationOutcome(
@@ -61,13 +71,17 @@ public sealed class IsolationRuns(WorkerLaunchPlan launch, TestRoster roster, bo
         }
 
         var request = new WorkerRequest.Run(plan.MutantId.Value, order.Select(roster.Id).ToArray(), AllFailures: detectionMatrix);
-        var exchange = await client.SendAsync(request, VerdictInterpretation.Deadline(budget)).ConfigureAwait(false);
+        var exchange = await client.SendAsync(request, VerdictInterpretation.Deadline(budget), cancellation).ConfigureAwait(false);
         var verdict = VerdictInterpretation.Settle(exchange, client.HasExited);
         var executed = exchange.Response is WorkerResponse.RunCompleted completed
             ? completed.ExecutedTests ?? order.Count
             : 0;
         return new IsolationOutcome(verdict, executed, stopwatch.Elapsed.TotalMilliseconds, Row(order, exchange.Response));
     }
+
+    /// <summary>取り消しで実行に至らなかった実行の記録</summary>
+    private IsolationOutcome Interrupted(IReadOnlyList<TestIndex> order) =>
+        new(new MutantVerdict.Unjudged(new UnjudgedCause.Interrupted()), 0, 0, Row(order, null));
 
     /// <summary>検出行列を求める実行での run の応答からの行</summary>
     private DetectionRow? Row(IReadOnlyList<TestIndex> order, WorkerResponse? response) =>
