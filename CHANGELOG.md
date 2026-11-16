@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.5.0] - 2026-11-16
 
 ### Added
 
@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Breaking for scripts that call `run`: its exit status has new values. Before, `run` exited only with 0, 1 or 2. It now exits with 3 when it finished but some mutants have no verdict (`run.state` is `unjudged`, for example a mutant whose time budget expired while the machine was contended, which used to be counted as detected). It exits with 128 plus the signal number when `SIGHUP`, `SIGINT` or `SIGTERM` stops it (129, 130, 143) after writing a partial report, where such a signal used to kill the process and leave no report. A script that treats every status other than 1 and 2 as success, or that handles only 0, 1 and 2, must handle 3 and 143 (and 129 and 130): 3 means the verdicts are incomplete, not that the run succeeded or that the score is below `--break-at`, and 143 means a partial report exists in the output directory with `run.state` set to `interrupted`, not that none was written. Status 3 takes precedence over 2, because the score ignores the mutants without a verdict.
 - Library callers that implement the engine ports must follow three changes: `ISnapshots.Save` is replaced by `ISnapshots.Begin`, which returns an `IVerdictJournal`; `IWorkerRuns.ObserveAsync` takes a `CancellationToken`; and `IWorkerRuns.ExecuteAsync` takes an `ExecutionControl` that carries the settled-verdict callback and the cancellation. `TestingOrchestrator.ExecuteAsync` takes the same `ExecutionControl`.
 - `mutation-select` records the report's `run` object as `reportRun` in `.mutation-output/select/selection.json`, so an analysis stopped at its limit shows how many mutants it had judged. The partial report of a stopped analysis stays under `.mutation-output/select/runs/<UTC time>-<HEAD>/reports/`.
 - `verify-full` appends its backlog to `work/backlog.md` instead of `docs/backlog.md`, and the manual medium benchmark writes to `work/performance/medium/` instead of `tests/performance/medium/work/`. Preserve existing local records under `work/` before rerunning the benchmark, which recreates its target and results directories.
