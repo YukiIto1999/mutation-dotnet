@@ -36,9 +36,10 @@ public interface ISnapshots
         TestRoster roster
     );
 
-    /// <summary>今回の実行全体の、次回の継承元としての書き出し</summary>
-    /// <param name="request">保存する内容一式</param>
-    void Save(SnapshotSaveRequest request);
+    /// <summary>判定の確定ごとの追記の開始。実行全体の判定は、返した記録の Commit で次回の継承元として保存する</summary>
+    /// <param name="checkpoint">実行の前に分かっている判定を持つ、保存する内容。判定を確定していない変異は未判定で渡す</param>
+    /// <returns>確定した判定を追記し、最後に保存へ畳む記録</returns>
+    IVerdictJournal Begin(SnapshotSaveRequest checkpoint);
 }
 
 /// <summary>保存する内容一式</summary>

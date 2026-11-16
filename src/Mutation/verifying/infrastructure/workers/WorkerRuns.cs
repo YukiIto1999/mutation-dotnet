@@ -19,10 +19,11 @@ public sealed class WorkerRuns : IWorkerRuns
         IReadOnlyList<MutantPlan> plans,
         int concurrency,
         bool detectionMatrix,
-        Action<RunProgress> progress
+        Action<RunProgress> progress,
+        ExecutionControl control
     )
     {
         using var orchestrator = new TestingOrchestrator(launch, roster, progress, detectionMatrix);
-        return await orchestrator.ExecuteAsync(plans, concurrency).ConfigureAwait(false);
+        return await orchestrator.ExecuteAsync(plans, concurrency, control).ConfigureAwait(false);
     }
 }

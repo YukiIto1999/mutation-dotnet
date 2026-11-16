@@ -172,9 +172,21 @@ Microsoft.Testing.Platform の run は killer test の名前を返さないた�
 この経路は生成入力の指紋と設定を照合せず、他のファイルの内容も照合しない。
 そのため、設定の変更や別のファイルの変更が継承する変異の意味を変えても、上の条件が一致すれば前回の判定を継承する。
 判定の合成は、今回の `CompileError`、`NoCoverage`、`Ignored` を先に置き、継承した判定、実行した判定の順に上書きする。
-所在は `verifying/application/workflows/verify-mutants/VerifyMutants.cs` の `MergedVerdicts` である。
+所在は `verifying/application/workflows/verify-mutants/VerdictMerge.cs` の `Merge` である。
 この上書きの順序が今回の分類に与える影響は、実行で確かめていない。
 `tests/Mutation.Tests/verifying/SnapshotReuseFacts.cs` と `SnapshotReconstructionFacts.cs` は、上の局所的な条件を固定するもので、依存の閉包の健全性までは保証しない。
+
+判定の確定ごとに、`SnapshotJournal.cs` が保存に並べた `work/<対象名>/snapshot.verdicts.jsonl` へ一行ずつ追記する。
+一行目は、実行の前に分かっている判定(即時確定と継承した判定)を持ち、これから実行する変異を未判定の `Pending` で置いた保存の全体である。
+二行目からは、確定した判定の一件ずつである。
+一行を書くたびに flush するので、process が殺されても書き終えた行は残る。
+次の実行では `SnapshotStore.Load` が、この記録があればそれを優先して保存を復元する(`SnapshotJournalReplay.cs`)。
+書き終える前に殺された最後の行は捨てる。
+走行が終わると `VerifyMutants` が最終の判定を保存し(`IVerdictJournal.Commit`)、記録を取り除く。
+`Pending` が残る保存は、生成入力の指紋と変異 assembly の hash を持たないので、全体の再構築に一致しない。
+`Pending` が前回の結果として再利用されることはなく、確定した判定だけが変異ごとの継承で次の実行に残り、残りの変異だけが実行される。
+`--detection-matrix` の実行は継承を使わないので、この記録から続きを実行することはできない。
+振る舞いは `tests/Mutation.Tests/verifying/SnapshotJournalFacts.cs` と `VerifyMutantsResumeFacts.cs` が固定する。
 
 ## 出力の配置
 
@@ -184,7 +196,7 @@ Microsoft.Testing.Platform の run は killer test の名前を返さないた�
 | 置き場 | 内容 |
 |---|---|
 | `work/` | 対象間で共有する build の中間物と binlog |
-| `work/<対象名>/` | 対象ごとの `snapshot.json` とテスト実行体の成果物 |
+| `work/<対象名>/` | 対象ごとの `snapshot.json`、走行の間だけ残る追記の記録 `snapshot.verdicts.jsonl`、テスト実行体の成果物 |
 | `mutated/<対象名>/` | 変異 assembly と、失敗時の `failed-sources/` |
 | `since/work/<対象名>/`、`since/mutated/<対象名>/` | `--since` を指定した実行の保存と変異 assembly |
 | `reports/` | 対象をまたいで一つの `mutation-report.json` と `timings.json` |

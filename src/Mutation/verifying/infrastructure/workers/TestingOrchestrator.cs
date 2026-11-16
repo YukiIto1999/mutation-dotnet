@@ -1,4 +1,5 @@
 using Mutation.Shared;
+using Mutation.Verifying.Application;
 using Mutation.Verifying.Domain;
 using System.Collections.Concurrent;
 using System.Diagnostics;
@@ -53,12 +54,17 @@ public sealed class TestingOrchestrator : IDisposable
     /// <summary>全計画の実行と、この呼び出し分に閉じた判定の集計</summary>
     /// <param name="plans">実行する変異計画の列</param>
     /// <param name="concurrency">同時に走らせる worker 数</param>
+    /// <param name="control">判定が確定するたびの通知先</param>
     /// <returns>変異ごとの判定と実行の記録</returns>
-    public async Task<OrchestrationResult> ExecuteAsync(IReadOnlyList<MutantPlan> plans, int concurrency)
+    public async Task<OrchestrationResult> ExecuteAsync(
+        IReadOnlyList<MutantPlan> plans,
+        int concurrency,
+        ExecutionControl control
+    )
     {
         var shared = new ConcurrentQueue<MutantPlan>(plans.Where(p => p.Execution is not MutantExecution.Isolated));
         var isolated = new ConcurrentQueue<MutantPlan>(plans.Where(p => p.Execution is MutantExecution.Isolated));
-        var tally = new RunTally(plans.Count, progress);
+        var tally = new RunTally(plans.Count, progress, control.Settled);
         progress(new RunProgress.ExecutionStarted(shared.Count, isolated.Count, Math.Max(1, concurrency)));
         var lanes = Enumerable
             .Range(0, Math.Max(1, concurrency))

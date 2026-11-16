@@ -74,7 +74,7 @@ dotnet src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll run \
 | `--ignore-methods NAMES` | この呼び出しの中を変異させない method 名。例 `ConfigureAwait`。`,` 区切り |
 | `--validate-survivors` | 生存 mutant を新規プロセスで再検証 |
 | `--exclude-static` | static の文脈にある変異と、テストの外か static 初期化の最中に実行される変異を、通常のテストが被覆していても対象外にし、Ignored として報告 |
-| `--with-baseline` | 同じ出力先の同じ種類の前回実行の保存から、不変の mutant の判定を継承。全量の実行は全量の実行から、`--since` の実行は `--since` の実行から継承 |
+| `--with-baseline` | 同じ出力先の同じ種類の前回実行の保存から、不変の mutant の判定を継承。全量の実行は全量の実行から、`--since` の実行は `--since` の実行から継承。終わる前に止まった走行は確定した判定を残すので、同じ command で、判定のない mutant の続きを実行できる |
 | `--detection-matrix` | 最初の失敗で打ち切らず、mutant ごとに被覆する全テストを実行し、失敗した全テストを報告に記録する。判定は変わらない。前回の判定は継承しないので、`--with-baseline` は効かない |
 
 ## レポート

@@ -5,7 +5,10 @@ using System.Collections.Concurrent;
 namespace Mutation.Verifying.Infrastructure.Workers;
 
 /// <summary>一回の実行呼び出しに閉じた判定の集計</summary>
-public sealed class RunTally(int total, Action<RunProgress> progress)
+/// <param name="total">実行する変異計画の件数</param>
+/// <param name="progress">進行を伝える通知先</param>
+/// <param name="settled">判定が確定するたびに呼ぶ通知先</param>
+public sealed class RunTally(int total, Action<RunProgress> progress, Action<MutantId, MutantVerdict> settled)
 {
     /// <summary>確定した判定の集まり</summary>
     private readonly ConcurrentDictionary<MutantId, MutantVerdict> verdicts = [];
@@ -43,6 +46,11 @@ public sealed class RunTally(int total, Action<RunProgress> progress)
         }
 
         timings.Add(new MutantTiming(plan.MutantId, elapsedMs, executedTests, isolated));
+        if (verdict is not MutantVerdict.Unjudged)
+        {
+            settled(plan.MutantId, verdict);
+        }
+
         var done = Interlocked.Increment(ref completed);
         if (done % reportEvery == 0 || done == total)
         {

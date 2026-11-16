@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Text.Json;
 using Mutation.Protocol;
+using Mutation.Shared;
+using Mutation.Verifying.Application;
 using Mutation.Verifying.Domain;
 using Mutation.Verifying.Infrastructure.Workers;
 
@@ -99,14 +101,25 @@ internal sealed class ScriptedWorkerRun : IDisposable
     /// <param name="plans">共有の計画を実行順に並べた変異計画</param>
     /// <returns>判定と操作の記録および終了後の process の状態</returns>
     public Task<ScriptedExecution> ExecuteAsync(TestRoster roster, params MutantPlan[] plans) =>
-        RunAsync(roster, detectionMatrix: false, plans);
+        RunAsync(roster, detectionMatrix: false, ExecutionControl.None, plans);
+
+    /// <summary>判定の確定ごとの通知を受ける一本の lane での変異実行と worker の終了の観測</summary>
+    /// <param name="roster">連番順のテストの名簿</param>
+    /// <param name="settled">判定が確定するたびに呼ぶ通知先</param>
+    /// <param name="plans">共有の計画を実行順に並べた変異計画</param>
+    /// <returns>判定と操作の記録および終了後の process の状態</returns>
+    public Task<ScriptedExecution> ExecuteSettlingAsync(
+        TestRoster roster,
+        Action<MutantId, MutantVerdict> settled,
+        params MutantPlan[] plans
+    ) => RunAsync(roster, detectionMatrix: false, new ExecutionControl(settled), plans);
 
     /// <summary>検出行列を求める一本の lane での変異実行と worker の終了の観測</summary>
     /// <param name="roster">連番順のテストの名簿</param>
     /// <param name="plans">共有の計画を実行順に並べた変異計画</param>
     /// <returns>判定と行と操作の記録および終了後の process の状態</returns>
     public Task<ScriptedExecution> ExecuteDetectionMatrixAsync(TestRoster roster, params MutantPlan[] plans) =>
-        RunAsync(roster, detectionMatrix: true, plans);
+        RunAsync(roster, detectionMatrix: true, ExecutionControl.None, plans);
 
     /// <summary>基準観測の収集と worker の終了の観測</summary>
     /// <param name="concurrency">同時に走らせる worker 数</param>
@@ -125,12 +138,18 @@ internal sealed class ScriptedWorkerRun : IDisposable
     /// <summary>一本の lane での変異実行と記録と process の状態の回収</summary>
     /// <param name="roster">連番順のテストの名簿</param>
     /// <param name="detectionMatrix">変異ごとに全失敗の記録を求めるか</param>
+    /// <param name="control">実行に添える通知先</param>
     /// <param name="plans">共有の計画を実行順に並べた変異計画</param>
     /// <returns>判定と操作の記録および終了後の process の状態</returns>
-    private async Task<ScriptedExecution> RunAsync(TestRoster roster, bool detectionMatrix, MutantPlan[] plans)
+    private async Task<ScriptedExecution> RunAsync(
+        TestRoster roster,
+        bool detectionMatrix,
+        ExecutionControl control,
+        MutantPlan[] plans
+    )
     {
         using var orchestrator = new TestingOrchestrator(launch, roster, _ => { }, detectionMatrix);
-        var result = await orchestrator.ExecuteAsync(plans, concurrency: 1);
+        var result = await orchestrator.ExecuteAsync(plans, concurrency: 1, control);
         var calls = await ReadJournalAsync();
         var surviving = await StillRunningAsync(calls.Select(call => call.Pid).Distinct().ToArray());
         return new ScriptedExecution(result, calls, surviving);

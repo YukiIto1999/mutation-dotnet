@@ -228,6 +228,25 @@ public sealed class TestingOrchestratorFacts
         await Assert.That(execution.Result.Detections).IsEmpty();
     }
 
+    /// <summary>判定が確定するたびに通知され、再判定に回した途中の結果は通知しないことの検査</summary>
+    /// <remarks>未到達の生存を隔離で検出に直した変異と、共有側で生存を確定した変異の対比</remarks>
+    /// <returns>worker の終了まで含む非同期検査</returns>
+    [Test]
+    public async Task Settled_verdicts_are_reported_once_each_and_only_in_their_final_form()
+    {
+        using var run = new ScriptedWorkerRun(
+            ScriptedWorkerRun.SharedAnswer(1, Survived(reached: false)),
+            ScriptedWorkerRun.IsolatedAnswer(1, Killed(AddTest, reached: true)),
+            ScriptedWorkerRun.SharedAnswer(2, Survived(reached: true))
+        );
+        var settled = new System.Collections.Concurrent.ConcurrentQueue<(int Id, MutantVerdict Verdict)>();
+
+        await run.ExecuteSettlingAsync(Roster, (id, verdict) => settled.Enqueue((id.Value, verdict)), Resident(1, 0, 1), Resident(2, 1));
+
+        await Assert.That(settled.OrderBy(pair => pair.Id).ToArray())
+            .IsEquivalentTo([(1, (MutantVerdict)new MutantVerdict.Killed(AddTest)), (2, new MutantVerdict.Survived())]);
+    }
+
     /// <summary>共有 worker で実行する計画の組み立て</summary>
     /// <param name="mutantId">変異の連番</param>
     /// <param name="tests">名簿の連番によるテストの列</param>

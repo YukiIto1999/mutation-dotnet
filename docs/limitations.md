@@ -83,7 +83,10 @@ README の制約事項に加えて、source から確かめられるものを置
 - 継承した判定は、今回の `CompileError`、`NoCoverage`、`Ignored` の判定を上書きし得る。
   `--validate-survivors` は、継承した `Survived` を再検証しない。
   どちらも source の読取りから導いた推論で、実行で確かめていない。
-  所在は `Mutation/verifying/application/workflows/verify-mutants/VerifyMutants.cs` の `MergedVerdicts` と `RevalidateSurvivorsAsync` である。
+  所在は `Mutation/verifying/application/workflows/verify-mutants/VerdictMerge.cs` の `Merge` と `VerifyMutants.cs` の `RevalidateSurvivorsAsync` である。
 - 全量の実行の保存は、`--mutate`、`--ignore-operators`、`--ignore-methods` だけが違う実行の間で共有される。
   これらを切り替えると全体の再構築は起きなくなり、変異ごとの継承は設定を照合しないので、前回の判定を継承し得る。
   所在は `Mutation/verifying/application/workflows/run-mutation-testing/RunLayout.cs` である。
+- 判定の確定ごとの追記の記録は、`--validate-survivors` の再検証の結果と `--detection-matrix` の行列の行を持たない。
+  `--detection-matrix` の実行は継承を使わないので、止まった行列の実行を続きから実行することはできない。
+  所在は `Mutation/verifying/infrastructure/snapshot/SnapshotJournal.cs` と `Mutation/composition/operations/MutationTesting.cs` である。
