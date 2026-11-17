@@ -23,6 +23,9 @@ public sealed class TestingOrchestratorTimeoutFacts
     /// <summary>変異のない対照の run を指す連番</summary>
     private const int ControlId = -1;
 
+    /// <summary>変異のない対照の run を予算より遅らせる時間。猶予の長さにも使い、対照は期限に収まって予算を超える</summary>
+    private const int ControlDelayMs = 600;
+
     /// <summary>二件のテストの名簿</summary>
     private static readonly TestRoster Roster = new([AddTest, "Calc.Sub"], [10, 10]);
 
@@ -158,12 +161,82 @@ public sealed class TestingOrchestratorTimeoutFacts
         await Assert.That(execution.SurvivingProcesses).IsEmpty();
     }
 
+    /// <summary>対照の実行は、最初の失敗で打ち切らず全テストを走らせるよう worker に求めること</summary>
+    /// <returns>worker の終了まで含む非同期検査</returns>
+    [Test]
+    public async Task The_control_run_asks_the_worker_to_run_every_test_even_when_one_fails()
+    {
+        using var run = Scripted(
+            new Dictionary<string, int>
+            {
+                [ScriptedWorkerRun.SharedKey(1)] = ScriptedWorkerRun.NeverAnswers,
+                [ScriptedWorkerRun.IsolatedKey(1)] = ScriptedWorkerRun.NeverAnswers,
+            },
+            BudgetOnly,
+            ScriptedWorkerRun.IsolatedAnswer(ControlId, Survived())
+        );
+
+        var execution = await run.ExecuteAsync(Roster, Resident(1, 0));
+
+        await Assert.That(execution.Calls.Single(call => call.MutantId == ControlId).AllFailures).IsTrue();
+    }
+
+    /// <summary>競合で判定できなかった変異の所要時間に、対照の実行に費やした時間が入ること</summary>
+    /// <returns>worker の終了まで含む非同期検査</returns>
+    [Test]
+    public async Task The_time_spent_on_the_control_run_is_recorded_for_the_contended_mutant()
+    {
+        using var run = Contended();
+
+        var execution = await run.ExecuteAsync(Roster, Resident(1, 0));
+
+        await Assert.That(execution.Result.Timings.Single().ElapsedMs).IsGreaterThan(BudgetMs);
+    }
+
+    /// <summary>検出行列を求める走行で、競合で判定できなかった変異の行が、求めた全テストを未実行として残すこと</summary>
+    /// <returns>worker の終了まで含む非同期検査</returns>
+    [Test]
+    public async Task A_contended_timeout_in_a_detection_matrix_run_leaves_every_planned_test_not_run()
+    {
+        using var run = Contended();
+
+        var execution = await run.ExecuteDetectionMatrixAsync(Roster, Resident(1, 0, 1));
+
+        await Assert.That(execution.Row(1).Failed).IsEmpty();
+        await Assert.That(string.Join(',', execution.Row(1).NotRun.Select(index => index.Value))).IsEqualTo("0,1");
+    }
+
+    /// <summary>既定の走行では、競合で判定できなかった変異にも検出行列の行を残さないこと</summary>
+    /// <returns>worker の終了まで含む非同期検査</returns>
+    [Test]
+    public async Task A_contended_timeout_in_a_default_run_records_no_detection_row()
+    {
+        using var run = Contended();
+
+        var execution = await run.ExecuteAsync(Roster, Resident(1, 0, 1));
+
+        await Assert.That(execution.Result.Detections).IsEmpty();
+    }
+
     /// <summary>応えない指示と猶予を決めた台本の実行</summary>
     private static ScriptedWorkerRun Scripted(
         Dictionary<string, int> delays,
         RunDeadlines deadlines,
         params (string Key, WorkerResponse Answer)[] script
     ) => new(delays, script) { Deadlines = deadlines };
+
+    /// <summary>期限を超えた共有の実行と、予算より遅いが期限に収まる変異のない対照の実行を持つ台本の実行</summary>
+    private static ScriptedWorkerRun Contended() =>
+        Scripted(
+            new Dictionary<string, int>
+            {
+                [ScriptedWorkerRun.SharedKey(1)] = ScriptedWorkerRun.NeverAnswers,
+                [ScriptedWorkerRun.IsolatedKey(ControlId)] = ControlDelayMs,
+            },
+            new RunDeadlines(TimeSpan.FromMilliseconds(ControlDelayMs)),
+            ScriptedWorkerRun.IsolatedAnswer(ControlId, Survived()),
+            ScriptedWorkerRun.IsolatedAnswer(1, Killed())
+        );
 
     /// <summary>共有 worker で実行する計画の組み立て</summary>
     private static MutantPlan Resident(int mutantId, params int[] tests) =>

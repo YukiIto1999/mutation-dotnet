@@ -112,7 +112,7 @@ xunit v2 と VSTest adapter は一回の実行の中でテストごとの失敗�
 判定は共有側の検出のままである。
 検出行列は前回の判定から得られないため、この指定は `--with-baseline` の継承と再利用を止める。
 所在は `composition/operations/MutationTesting.cs` である。
-振る舞いは `tests/Mutation.Tests/verifying/TestingOrchestratorFacts.cs`、`DetectionRowsFacts.cs`、`MutationTestingBaselineFacts.cs`、`tests/e2e/medium/detection-matrix/verify-detection-matrix.sh` が固定する。
+振る舞いは `tests/Mutation.Tests/verifying/TestingOrchestratorFacts.cs`、`TestingOrchestratorRowFacts.cs`、`DetectionRowsFacts.cs`、`MutationTestingBaselineFacts.cs`、`tests/e2e/medium/detection-matrix/verify-detection-matrix.sh` が固定する。
 
 baseline は変異を全て不活性にした assembly でテストを一度実行する。
 テストごとに、結果、所要時間、被覆した変異、probe の呼び出し回数を集め、`verifying/infrastructure/workers/BaselineMapping.cs` が `BaselineProfile` へ写す。
@@ -166,6 +166,7 @@ Microsoft.Testing.Platform の run は killer test の名前を返さないた�
 Stryker.NET、StrykerJS、PIT は倍率と定数の固定の期限で超過をそのまま timeout とし、忙しい機への手当ては定数を人が大きくすることだけなので、この確かめ直しは持たない。
 費用は、期限を超えた変異ごとの新規 process 二本と再実行一回である。
 振る舞いは `tests/Mutation.Tests/verifying/TestingOrchestratorTimeoutFacts.cs` と `TimeoutJudgementFacts.cs` が固定する。
+競合で判定できなかった変異の所要時間には、対照の実行に費やした時間が入る。
 
 ## 取り消し
 
@@ -248,6 +249,7 @@ SIGKILL は受け取れないので、止まった走行の判定は追記の記
 形式は `tests/Mutation.Tests/verifying/StrykerReportFacts.cs` が固定する。
 `reports/timings.json` は `TimingsReport.cs` が書き出し、`phases`、`counters`、`targets`、`mutants` を持つ。
 `phases` は build、mutate、compile、baseline、testing、total の段階別時間、`counters` は変異数、テスト数、score、worker の再起動回数、判定別件数、`targets` は対象別の内訳と中断、`mutants` は変異別の所要時間である。
+変異別の記録が持つ実行数、所要時間、隔離の実行だったかは、`tests/Mutation.Tests/verifying/TestingOrchestratorTimingFacts.cs` が固定する。
 `mutation-report.json` と `timings.json` は、走行が全変異の判定を確定したかを `RunStateReport.cs` が組み立てる `run` に書く。
 `state` は `MutationRunResult.State` で、全件が確定していれば `completed`、取り消しで止まっていれば `interrupted`、競合で判定できなかった変異が残れば `unjudged` である。
 判定を確定できなかった変異は `MutantVerdict.Unjudged` で表し、報告の status は `Pending`、`statusReason` に理由を書く。
