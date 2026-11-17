@@ -40,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - The changed-line gate refuses explicitly failed or interrupted runs even when no mutant was generated, rejects unknown run states, and retains omitted-impact diagnostics on failure.
 - Direct apphost launches resolve a shared dotnet host for both MSBuild and workers rather than recursively launching the CLI.
   The existing verdict-category E2E now starts the apphost with `DOTNET_HOST_PATH` unset.
+- Snapshot-reuse regression cases now change compiler settings and the process environment separately, so either invalidation path must work independently.
 
 ### Added
 
