@@ -80,6 +80,8 @@ rollback で無効化した変異は `CompileError` として報告され、判�
 worker の起動と指示の送信は `verifying/infrastructure/workers/WorkerClient.cs` にある。
 CLI と worker は匿名パイプで一行の JSON を交わし、指示は `protocol/WorkerRequest.cs` が定める `init`、`discover`、`baseline`、`run`、`exit` の閉じた直和である。
 worker が一指示を終えたことは、実 stdout に刻む `WorkerContract.OutputSentinel` で CLI へ伝える。
+`WorkerClient` は応答を読んだ後も目印を待ち、その指示の処理中に worker が書いた出力を応答に添える。
+この回収は `tests/Mutation.Tests/verifying/TestingOrchestratorOutputFacts.cs` が固定する。
 `protocol/` は CLI 側の `Mutation` と worker の両方が使う契約で、worker は `src/Mutation.Worker/Mutation.Worker.csproj` の `Compile Include` で source を共有する。
 
 worker はテスト assembly の基盤を `src/Mutation.Worker/hosts/HostSelection.cs` で判別し、`ITestHost` の実装を選ぶ。
@@ -118,6 +120,7 @@ baseline の被覆収集は、テスト数と `--concurrency` に応じて最大
 `BaselineExecution.cs` が分担し、テストが一件も見つからなければ `PipelineFailure.NoTestsFound` で対象を中断する。
 baseline で失敗したテストは以後の選択から除外する。
 複数 worker の観測の集計と不正な発見応答の拒否は、`tests/Mutation.Tests/verifying/BaselineExecutionFacts.cs` が実 process の worker を使って固定する。
+同じ検査が、テストを発見した worker が最初の分担を受け持つことと、分担を終えた worker へ終了の指示を送ることも固定する。
 
 `verifying/domain/services/MutantScheduler.cs` が、被覆から変異ごとの実行計画を算出する。
 被覆するテストが無い変異は実行せず `NoCoverage` にする。
@@ -179,7 +182,7 @@ baseline は worker を止めて失敗として返し、`TargetRun` が `Interru
 build と変異の生成は要求を受けても終えるまで走り、その後の段階の前で止まる。
 終了コードは `RunCommand.cs` が決め、取り消しで止まった走行は信号に対応する 129(SIGHUP)、130(SIGINT)、143(SIGTERM)である。
 SIGKILL は受け取れないので、止まった走行の判定は追記の記録(継承の節)だけが残す。
-振る舞いは `tests/Mutation.Tests/verifying/TestingOrchestratorCancellationFacts.cs`、`RunMutationTestingCancellationFacts.cs`、`BaselineExecutionFacts.cs` が固定し、信号を受けた走行全体は `tests/e2e/medium/interruption/verify-interruption.sh` が固定する。
+振る舞いは `tests/Mutation.Tests/verifying/TestingOrchestratorCancellationFacts.cs`、`TestingOrchestratorStartFailureFacts.cs`、`RunMutationTestingCancellationFacts.cs`、`BaselineExecutionFacts.cs` が固定し、信号を受けた走行全体は `tests/e2e/medium/interruption/verify-interruption.sh` が固定する。
 
 ## 継承
 
@@ -293,7 +296,7 @@ engine の `Result` と閉じた直和は、隣接 checkout の typemodeling-dot
 | 場所 | 内容 |
 |---|---|
 | `tests/Mutation.Tests/` | ユニットテストと構造検査 |
-| `tests/Mutation.ScriptedWorker/` | 台本どおりに応える worker。共有 worker と隔離 process の応答を決め、応答の前に待たせることも、応えないこともできる。`TestingOrchestratorFacts.cs` と `TestingOrchestratorCancellationFacts.cs` が使う |
+| `tests/Mutation.ScriptedWorker/` | 台本どおりに応える worker。共有 worker と隔離 process の応答を決め、応答の前に待たせることも、応えないことも、init に失敗することも、応答の後に出力を書くこともできる。`TestingOrchestrator` の各検査と `BaselineExecutionFacts.cs` が使う |
 | `tests/e2e/medium/` | 判定カテゴリ、三つのテスト基盤、変更行の判定、検出行列、SIGTERM と SIGKILL で止めた走行を実 process で検証する fixture と script |
 | `tests/performance/` | 合成対象と実 project への測定 script |
 

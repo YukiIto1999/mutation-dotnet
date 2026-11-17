@@ -15,7 +15,10 @@ namespace Mutation.ScriptedWorker;
 /// journal.log の列は pid・指示・実行形・変異の連番・テスト識別子・打ち切り方で区切りは縦棒
 /// 打ち切り方は全失敗の記録を求めた run が all で最初の失敗で打ち切る run が first
 /// 検出かつ未到達の応答を返した共有 worker は後続の run も失敗させる汚染状態
-/// delays.json は同じキーの応答の前に待つ ms で、負なら応えない。run と discover だけが読む。応答を待たせる検査のための台本
+/// delays.json は同じキーの応答の前に待つ ms で、負なら応えない。run と discover と init だけが読む。応答を待たせる検査のための台本
+/// init のキーは init:shared と init:isolated で、環境変数で活性化済みの process が isolated を読む。台本にない init は開設の応答
+/// outputs.json は run のキーごとに、応答を書いた後で完了の目印の前に実 stdout へ書く行。応答の後に出る出力を再現する検査のための台本
+/// exit の指示も journal.log に書く
 /// </remarks>
 internal sealed class ScriptedBehavior
 {
@@ -24,6 +27,15 @@ internal sealed class ScriptedBehavior
 
     /// <summary>応答の前に待つ時間の台本の file 名</summary>
     private const string DelayFileName = "delays.json";
+
+    /// <summary>応答の後に実 stdout へ書く行の台本の file 名</summary>
+    private const string OutputFileName = "outputs.json";
+
+    /// <summary>応答を書いてから後続の出力を書くまでの間隔(ms)。応答が先に読まれ、出力の回収が完了の目印の待ち合わせに頼る状況を作る</summary>
+    public const int LateOutputGapMs = 150;
+
+    /// <summary>init の応答のキーの接頭辞。環境変数で活性化済みかで shared と isolated が続く</summary>
+    private const string InitKeyPrefix = "init";
 
     /// <summary>受けた指示の記録の file 名</summary>
     private const string JournalFileName = "journal.log";
@@ -50,20 +62,33 @@ internal sealed class ScriptedBehavior
     /// <summary>台本のキーから応答の前に待つ ms への対応。負なら応えない</summary>
     private readonly Dictionary<string, int> delaysMs;
 
+    /// <summary>台本のキーから、応答の後に実 stdout へ書く行への対応</summary>
+    private readonly Dictionary<string, string[]> lateOutputs;
+
     /// <summary>受けた指示の記録の path</summary>
     private readonly string journalPath;
 
     /// <summary>検出かつ未到達の応答を返して汚れたか</summary>
     private bool polluted;
 
+    /// <summary>直前の run の応答の後に実 stdout へ書く行</summary>
+    private string[] pendingOutput = [];
+
     /// <summary>独立した実行の台本と記録先の束ね</summary>
     /// <param name="script">指示のキー別の応答</param>
     /// <param name="delaysMs">指示のキー別の応答前の待ち</param>
+    /// <param name="lateOutputs">run のキー別の、応答の後に実 stdout へ書く行</param>
     /// <param name="journalPath">この実行だけが使う記録の path</param>
-    private ScriptedBehavior(Dictionary<string, WorkerResponse> script, Dictionary<string, int> delaysMs, string journalPath)
+    private ScriptedBehavior(
+        Dictionary<string, WorkerResponse> script,
+        Dictionary<string, int> delaysMs,
+        Dictionary<string, string[]> lateOutputs,
+        string journalPath
+    )
     {
         this.script = script;
         this.delaysMs = delaysMs;
+        this.lateOutputs = lateOutputs;
         this.journalPath = journalPath;
     }
 
@@ -80,7 +105,11 @@ internal sealed class ScriptedBehavior
         var delays = File.Exists(delayPath)
             ? JsonSerializer.Deserialize<Dictionary<string, int>>(File.ReadAllText(delayPath), Serializer) ?? []
             : [];
-        return new ScriptedBehavior(script, delays, Path.Combine(resultsDirectory, JournalFileName));
+        var outputPath = Path.Combine(resultsDirectory, OutputFileName);
+        var outputs = File.Exists(outputPath)
+            ? JsonSerializer.Deserialize<Dictionary<string, string[]>>(File.ReadAllText(outputPath), Serializer) ?? []
+            : [];
+        return new ScriptedBehavior(script, delays, outputs, Path.Combine(resultsDirectory, JournalFileName));
     }
 
     /// <summary>一指示の記録と応答</summary>
@@ -93,16 +122,36 @@ internal sealed class ScriptedBehavior
             WorkerRequest.Discover => await DiscoverAsync(),
             WorkerRequest.Baseline baseline => await BaselineAsync(baseline),
             WorkerRequest.Run run => await RunAsync(run),
-            WorkerRequest.Shutdown => new WorkerResponse.Done(),
+            WorkerRequest.Shutdown => await ExitAsync(),
             _ => new WorkerResponse.Failed("台本にない指示"),
         };
 
-    /// <summary>init の記録と開設の応答</summary>
-    /// <returns>開設済みを示す応答</returns>
+    /// <summary>init の記録と開設の応答。環境変数で活性化済みの process は isolated のキーで台本を読む</summary>
+    /// <returns>台本が決める応答。台本になければ開設済みを示す応答</returns>
     private async Task<WorkerResponse> OpenAsync()
     {
         await JournalAsync("init", NoValue, NoValue, [], NoValue);
-        return new WorkerResponse.Opened();
+        var activated = Environment.GetEnvironmentVariable(InjectionContract.ActiveEnvironmentVariable) is { Length: > 0 };
+        var key = $"{InitKeyPrefix}:{(activated ? "isolated" : "shared")}";
+        await DelayAsync(key);
+        return script.TryGetValue(key, out var scripted) ? scripted : new WorkerResponse.Opened();
+    }
+
+    /// <summary>exit の記録と受理の応答</summary>
+    /// <returns>終了の受理を示す応答</returns>
+    private async Task<WorkerResponse> ExitAsync()
+    {
+        await JournalAsync("exit", NoValue, NoValue, [], NoValue);
+        return new WorkerResponse.Done();
+    }
+
+    /// <summary>直前の run の応答の後に実 stdout へ書く行の取り出し。取り出した行は消える形</summary>
+    /// <returns>応答の後で完了の目印の前に書く行</returns>
+    public string[] TakeLateOutput()
+    {
+        var lines = pendingOutput;
+        pendingOutput = [];
+        return lines;
     }
 
     /// <summary>台本に基づくテスト発見の応答</summary>
@@ -155,6 +204,7 @@ internal sealed class ScriptedBehavior
         await DelayAsync(key);
         var answer = script.TryGetValue(key, out var scripted) ? scripted : new WorkerResponse.Failed($"台本にない run: {key}");
         polluted = answer is WorkerResponse.RunCompleted { Outcome: WorkerContract.OutcomeKilled, Reached: false };
+        pendingOutput = lateOutputs.GetValueOrDefault(key) ?? [];
         return answer;
     }
 

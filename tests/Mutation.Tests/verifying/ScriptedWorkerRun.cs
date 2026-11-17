@@ -27,8 +27,17 @@ internal sealed class ScriptedWorkerRun : IDisposable
     /// <summary>Mutation.ScriptedWorker と共有する応答前の待ちの台本の file 名</summary>
     private const string DelayFileName = "delays.json";
 
+    /// <summary>Mutation.ScriptedWorker と共有する、応答の後に書く出力の台本の file 名</summary>
+    private const string OutputFileName = "outputs.json";
+
     /// <summary>台本の待ちに指定する、殺されるまで応えない値</summary>
     public const int NeverAnswers = -1;
+
+    /// <summary>共有の worker が init に答える台本のキー</summary>
+    public const string SharedInitKey = "init:shared";
+
+    /// <summary>環境変数で活性化済みの隔離 process が init に答える台本のキー</summary>
+    public const string IsolatedInitKey = "init:isolated";
 
     /// <summary>Mutation.ScriptedWorker と共有する受信記録の file 名</summary>
     private const string JournalFileName = "journal.log";
@@ -77,6 +86,20 @@ internal sealed class ScriptedWorkerRun : IDisposable
         : this(script) =>
         File.WriteAllText(Path.Combine(directory, DelayFileName), JsonSerializer.Serialize(delaysMs, Serializer));
 
+    /// <summary>run の応答の後で完了の目印の前に、worker が実 stdout へ書く行を持つ台本</summary>
+    /// <param name="lateOutput">台本のキーから、応答の後に書く行への対応</param>
+    /// <param name="script">指示のキーに対する応答の台本</param>
+    /// <returns>出力の台本を書いた検査環境</returns>
+    public static ScriptedWorkerRun WithLateOutput(
+        IReadOnlyDictionary<string, string[]> lateOutput,
+        params (string Key, WorkerResponse Answer)[] script
+    )
+    {
+        var run = new ScriptedWorkerRun(script);
+        File.WriteAllText(Path.Combine(run.directory, OutputFileName), JsonSerializer.Serialize(lateOutput, Serializer));
+        return run;
+    }
+
     /// <summary>共有の worker が変異の run に答える台本のキー</summary>
     /// <param name="mutantId">変異の連番</param>
     /// <returns>台本のキー</returns>
@@ -124,6 +147,28 @@ internal sealed class ScriptedWorkerRun : IDisposable
     /// <returns>台本の一件</returns>
     public static (string Key, WorkerResponse Answer) BaselineFailure(string testId, string error) =>
         ($"{WorkerCall.BaselineRequest}:{testId}", new WorkerResponse.Failed(error));
+
+    /// <summary>init に返す応答の台本の一件</summary>
+    /// <param name="key">SharedInitKey か IsolatedInitKey</param>
+    /// <param name="answer">開設の失敗など台本が決める応答</param>
+    /// <returns>台本の一件</returns>
+    public static (string Key, WorkerResponse Answer) InitAnswer(string key, WorkerResponse answer) => (key, answer);
+
+    /// <summary>隔離 process での一件の実行と worker の起動の記録の観測</summary>
+    /// <param name="roster">連番順のテストの名簿</param>
+    /// <param name="plan">隔離の実行形の変異計画</param>
+    /// <param name="cancellation">取り消しの要求。取り消し済みも渡せる</param>
+    /// <returns>確定結果と実行の記録および受信順の worker 指示の記録</returns>
+    public async Task<(IsolationOutcome Outcome, IReadOnlyList<WorkerCall> Calls)> IsolateAsync(
+        TestRoster roster,
+        MutantPlan plan,
+        CancellationToken cancellation
+    )
+    {
+        using var isolations = new IsolationRuns(launch, roster, detectionMatrix: false, Deadlines);
+        var outcome = await isolations.RunAsync(plan, cancellation);
+        return (outcome, await ReadJournalAsync());
+    }
 
     /// <summary>worker が指示を受けた時点で取り消す、一本の lane での変異実行と worker の終了の観測</summary>
     /// <param name="roster">連番順のテストの名簿</param>

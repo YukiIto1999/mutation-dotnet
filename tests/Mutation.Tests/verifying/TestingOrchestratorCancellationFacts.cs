@@ -91,6 +91,28 @@ public sealed class TestingOrchestratorCancellationFacts
         await Assert.That(execution.Calls).IsEmpty();
     }
 
+    /// <summary>応答を読んだ後の出力の回収の間に取り消すと、その応答を採らず、worker を止めることの検査</summary>
+    /// <remarks>worker は応答を書いた後で、完了の目印の前に出力を書くので、取り消しは応答を読み終えた後に届く</remarks>
+    /// <returns>worker の終了まで含む非同期検査</returns>
+    [Test]
+    public async Task A_cancellation_while_the_answer_is_being_collected_discards_it_and_stops_the_worker()
+    {
+        using var run = ScriptedWorkerRun.WithLateOutput(
+            new Dictionary<string, string[]> { [ScriptedWorkerRun.SharedKey(1)] = ["written after the answer"] },
+            ScriptedWorkerRun.SharedAnswer(1, Killed())
+        );
+
+        var execution = await run.ExecuteCancellingAsync(
+            Roster,
+            calls => calls.Any(call => call.Request == WorkerCall.RunRequest),
+            (_, _) => { },
+            Resident(1, 0)
+        );
+
+        await Assert.That(execution.Verdict(1)).IsEqualTo(new MutantVerdict.Unjudged(new UnjudgedCause.Interrupted()));
+        await Assert.That(execution.SurvivingProcesses).IsEmpty();
+    }
+
     /// <summary>共有 worker で実行する計画の組み立て</summary>
     private static MutantPlan Resident(int mutantId, params int[] tests) =>
         new(new MutantId(mutantId), new MutantExecution.Resident(Order(tests), BudgetMs));
