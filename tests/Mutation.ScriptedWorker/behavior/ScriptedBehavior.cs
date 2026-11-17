@@ -31,8 +31,8 @@ internal sealed class ScriptedBehavior
     /// <summary>応答の後に実 stdout へ書く行の台本の file 名</summary>
     private const string OutputFileName = "outputs.json";
 
-    /// <summary>応答を書いてから後続の出力を書くまでの間隔(ms)。応答が先に読まれ、出力の回収が完了の目印の待ち合わせに頼る状況を作る</summary>
-    public const int LateOutputGapMs = 150;
+    /// <summary>応答を書いてから後続の出力を書くまでの間隔(ms)。応答が先に読まれ、出力の回収が完了の目印の待ち合わせに頼る状況を作る。負荷で取り消しの到着が遅れても、この間に届く長さ</summary>
+    public const int LateOutputGapMs = 1000;
 
     /// <summary>init の応答のキーの接頭辞。環境変数で活性化済みかで shared と isolated が続く</summary>
     private const string InitKeyPrefix = "init";
