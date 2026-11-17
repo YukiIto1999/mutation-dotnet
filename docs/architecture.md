@@ -132,7 +132,7 @@ static 初期化の文脈にある変異と、テスト境界の外か static �
 `--exclude-static` を指定すると、構文上 static の文脈にある変異と、テスト境界の外か static 初期化の区間で hit した変異を、通常の被覆テストがあっても `Ignored` にして score の母数から外す。
 `--validate-survivors` を指定すると、今回の実行で `Survived` になった隔離でない変異を、`VerifyMutants.cs` が新規 process で再検証して結果を重ねる。
 前回から継承した `Survived` は、再検証の対象に入らない。
-振る舞いは `tests/Mutation.Tests/verifying/MutantSchedulerFacts.cs` が固定する。
+振る舞いは `tests/Mutation.Tests/verifying/MutantSchedulerFacts.cs` と `VerifyMutantsFacts.cs` が固定する。
 
 共有 worker が活性の変異の枝へ一度も到達しなかったことを `RunCompleted.Reached == false` で報告した場合、`TestingOrchestrator.cs` は生存・検出のどちらも新規 process で再判定する。
 この条件で検出を返した共有 worker は破棄し、次の共有実行の直前に新しい worker を起動する。
@@ -202,6 +202,7 @@ SIGKILL は受け取れないので、止まった走行の判定は追記の記
 判定の合成は、今回の `CompileError`、`NoCoverage`、`Ignored` を先に置き、継承した判定、実行した判定の順に上書きする。
 所在は `verifying/application/workflows/verify-mutants/VerdictMerge.cs` の `Merge` である。
 この上書きの順序が今回の分類に与える影響は、実行で確かめていない。
+即時に確定した判定が、実行した判定と並んで合成の結果に残ることは、`tests/Mutation.Tests/verifying/VerifyMutantsFacts.cs` が固定する。
 `tests/Mutation.Tests/verifying/SnapshotReuseFacts.cs` と `SnapshotReconstructionFacts.cs` は、上の局所的な条件を固定するもので、依存の閉包の健全性までは保証しない。
 
 判定の確定ごとに、`SnapshotJournal.cs` が保存に並べた `work/<対象名>/snapshot.verdicts.jsonl` へ一行ずつ追記する。
