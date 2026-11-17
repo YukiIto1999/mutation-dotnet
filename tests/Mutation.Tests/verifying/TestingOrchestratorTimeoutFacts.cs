@@ -11,7 +11,9 @@ namespace Mutation.Tests;
 /// <remarks>
 /// 応えない worker を台本で作り、予算と猶予を数百 ms に縮めた期限で本物の WorkerClient に殺させる
 /// 期限を超えたら、変異のない対照の実行と新規 process での再実行で確かめる
+/// 数百 ms の期限は他の検査の process 起動と競り合うと超えるので、他の検査と並行に走らせない
 /// </remarks>
+[NotInParallel]
 public sealed class TestingOrchestratorTimeoutFacts
 {
     /// <summary>名簿の先頭のテスト名</summary>
