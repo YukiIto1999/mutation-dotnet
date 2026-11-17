@@ -7,8 +7,13 @@ namespace Mutation.Verifying.Infrastructure.Snapshot;
 /// <summary>前回の保存から今回へ継承できる判定の算出</summary>
 public static class SnapshotReuse
 {
-    /// <summary>ファイル・変異列・テスト assembly・被覆テスト集合が前回と一致する変異の判定の収集</summary>
+    /// <summary>入力の閉包の同一性・ファイル・変異列・テスト assembly・被覆テスト集合が前回と一致する変異の判定の収集</summary>
+    /// <remarks>
+    /// 閉包の同一性は、他のファイル、設定、参照する assembly、analyzer と generator、additional file、analyzer config、テストの補助 file の内容を含む
+    /// 保存と今回のどちらかが同一性を持たなければ、一致を示せないので何も継承しない
+    /// </remarks>
     /// <param name="document">前回の保存。なければ継承なし</param>
+    /// <param name="closureIdentity">今回の入力の閉包の同一性。入力を読めなかったときは不在</param>
     /// <param name="mutants">今回の全変異</param>
     /// <param name="testAssemblyPath">今回のテスト assembly の絶対 path</param>
     /// <param name="coverage">今回の被覆表</param>
@@ -16,6 +21,7 @@ public static class SnapshotReuse
     /// <returns>変異の連番から継承する判定への対応</returns>
     public static IReadOnlyDictionary<MutantId, MutantVerdict> Inheritable(
         SnapshotDocument? document,
+        string? closureIdentity,
         IReadOnlyList<Mutant> mutants,
         string testAssemblyPath,
         CoverageMap coverage,
@@ -23,7 +29,12 @@ public static class SnapshotReuse
     )
     {
         var inherited = new Dictionary<MutantId, MutantVerdict>();
-        if (document?.Tests is null || document.TestAssemblyHash != SnapshotStore.HashOf(testAssemblyPath))
+        if (
+            document?.Tests is not { } savedTests
+            || document.ClosureIdentity is null
+            || document.ClosureIdentity != closureIdentity
+            || document.TestAssemblyHash != SnapshotStore.HashOf(testAssemblyPath)
+        )
         {
             return inherited;
         }
@@ -40,7 +51,7 @@ public static class SnapshotReuse
             {
                 var coveringUnchanged = SameTestSet(
                     saved.CoveringTests,
-                    document.Tests,
+                    savedTests,
                     coverage.CoveringTests(mutant.Id),
                     roster
                 );

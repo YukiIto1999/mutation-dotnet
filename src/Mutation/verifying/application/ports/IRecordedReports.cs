@@ -16,4 +16,5 @@ public interface IRecordedReports
 /// <summary>読み戻した変異検査の報告</summary>
 /// <param name="ProjectRoot">報告内の相対 path の基準になる directory の絶対 path</param>
 /// <param name="Mutants">記録された全変異</param>
-public sealed record RecordedReport(string ProjectRoot, IReadOnlyList<RecordedMutant> Mutants);
+/// <param name="Unanalysed">報告の run が残した、`--since` の選別で未分析にした関係と件数の記述。差分運用でない報告や前の版の報告では不在</param>
+public sealed record RecordedReport(string ProjectRoot, IReadOnlyList<RecordedMutant> Mutants, IReadOnlyList<string>? Unanalysed = null);

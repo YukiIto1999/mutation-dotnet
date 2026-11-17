@@ -28,6 +28,14 @@ public static class ChangedLineSummary
             CultureInfo.InvariantCulture,
             $"変わった行の変異 {verdicts.OnChangedLines.Count} 件のうち未検出 {verdicts.Undetected.Count} 件{unjudged}"
         );
+        if (verdicts.Unanalysed.Count > 0)
+        {
+            builder.AppendLine(
+                CultureInfo.InvariantCulture,
+                $"未分析の影響範囲 {string.Join(", ", verdicts.Unanalysed)}。この判定は変更行の変異だけの結果で、影響する範囲を含まない"
+            );
+        }
+
         return builder.ToString();
     }
 }

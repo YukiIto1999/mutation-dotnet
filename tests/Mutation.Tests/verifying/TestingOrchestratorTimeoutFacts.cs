@@ -69,7 +69,7 @@ public sealed class TestingOrchestratorTimeoutFacts
                 [ScriptedWorkerRun.SharedKey(1)] = ScriptedWorkerRun.NeverAnswers,
                 [ScriptedWorkerRun.IsolatedKey(ControlId)] = 600,
             },
-            new RunDeadlines(TimeSpan.FromMilliseconds(600)),
+            RunDeadlines.Standard,
             ScriptedWorkerRun.IsolatedAnswer(ControlId, Survived()),
             ScriptedWorkerRun.IsolatedAnswer(1, Killed())
         );

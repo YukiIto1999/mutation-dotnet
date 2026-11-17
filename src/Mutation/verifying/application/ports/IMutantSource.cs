@@ -6,12 +6,12 @@ namespace Mutation.Verifying.Application;
 /// <summary>検査対象の変異一式の提供を担う port。準備と生成の二段で、間に前回結果の照合を挟める</summary>
 public interface IMutantSource
 {
-    /// <summary>全対象の build と特定、差分運用の基点からの差分の解決、および生成入力の指紋の算出。build は一度だけ</summary>
+    /// <summary>全対象の build と特定、差分運用の基点からの差分の解決、および再利用の同一性の算出。build は一度だけ</summary>
     /// <remarks>build の失敗は全対象に及ぶ失敗、特定と差分の解決の失敗は対象ごとの失敗。指紋は解決した差分を含む</remarks>
     /// <param name="targets">対象とテストの project の指定の列</param>
     /// <param name="selection">変異対象の選別の指定</param>
     /// <param name="workDirectory">build の中間物を置く directory</param>
-    /// <param name="fingerprintSettings">指紋へ畳む設定の要約。指紋が不要なら不在</param>
+    /// <param name="fingerprintSettings">同一性へ畳む設定の要約。同一性が不要なら不在で、保存は再利用の根拠を持たない</param>
     /// <returns>成功なら入力と同じ順の対象ごとの準備の結果、失敗なら全対象に及ぶ理由</returns>
     Task<Result<IReadOnlyList<Result<PreparedTarget, PipelineFailure>>, PipelineFailure>> PrepareAsync(
         IReadOnlyList<TargetRequest> targets,
@@ -37,12 +37,16 @@ public sealed record TargetRequest(string ProjectPath, string TestProjectPath, s
 /// <param name="Request">元になった対象の指定</param>
 /// <param name="TestAssemblyPath">テスト assembly の絶対 path</param>
 /// <param name="TargetAssemblyName">差し替え対象 assembly の単純名</param>
-/// <param name="Fingerprint">生成入力の指紋。要求しなかったときは不在</param>
+/// <param name="Fingerprint">生成入力の全体の指紋。同一性を求めなかったとき、または入力を読めなかったときは不在</param>
+/// <param name="ClosureIdentity">判定を決める入力の閉包の同一性。変異ごとの継承の根拠。求めなかったとき、または入力を読めなかったときは不在で、不在なら継承しない</param>
+/// <param name="Selection">`--since` の実行で、変異候補をどの範囲に選んだかの記録。差分運用でなければ不在</param>
 public sealed record PreparedTarget(
     TargetRequest Request,
     string TestAssemblyPath,
     string TargetAssemblyName,
-    string? Fingerprint
+    string? Fingerprint,
+    string? ClosureIdentity,
+    CandidateSelection? Selection
 );
 
 /// <summary>変異対象の選別の指定</summary>

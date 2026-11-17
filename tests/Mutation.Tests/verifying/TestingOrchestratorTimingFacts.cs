@@ -102,6 +102,7 @@ public sealed class TestingOrchestratorTimingFacts
 
         await Assert.That(execution.Result.Timings.Single() is { ExecutedTests: 0, Isolated: false }).IsTrue();
         await Assert.That(execution.Result.WorkerRestarts).IsEqualTo(1);
+        await Assert.That(execution.Verdict(1) is MutantVerdict.Unjudged { Cause: UnjudgedCause.RunnerFailure }).IsTrue();
     }
 
     /// <summary>変異ごとの実行の記録の実行数を変異の連番順に並べた列</summary>

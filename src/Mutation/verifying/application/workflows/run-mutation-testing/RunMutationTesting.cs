@@ -40,7 +40,7 @@ public sealed class RunMutationTesting(
                 request.Targets,
                 request.Selection,
                 layout.WorkDirectory,
-                request.WithBaseline ? request.FingerprintSettings : null
+                request.FingerprintSettings
             )
             .ConfigureAwait(false);
         var buildMs = clock.EndPhase();

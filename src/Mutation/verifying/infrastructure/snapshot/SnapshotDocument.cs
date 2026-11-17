@@ -4,12 +4,13 @@ namespace Mutation.Verifying.Infrastructure.Snapshot;
 
 /// <summary>継承元となる一回分の実行の保存形</summary>
 /// <param name="TestAssemblyHash">テスト assembly 内容の hash</param>
-/// <param name="CompilationFingerprint">変異の生成入力の指紋</param>
+/// <param name="CompilationFingerprint">変異の生成入力の全体の指紋</param>
 /// <param name="MutatedAssemblyHash">変異 assembly 内容の hash</param>
 /// <param name="CompileErrorIds">rollback で無効化された変異の連番</param>
 /// <param name="Tests">連番順の全テストの素性</param>
 /// <param name="AmbientMutants">テスト境界の外か static 初期化区間で観測された変異の連番</param>
 /// <param name="Files">ファイルの絶対 path から、その hash と変異列への対応</param>
+/// <param name="ClosureIdentity">判定を決める入力の閉包の同一性。判定を確定できなかった変異が残る保存も持つ。この項を持たない前の版の保存は継承の根拠にしない</param>
 public sealed record SnapshotDocument(
     string TestAssemblyHash,
     string? CompilationFingerprint,
@@ -17,7 +18,8 @@ public sealed record SnapshotDocument(
     IReadOnlyList<int>? CompileErrorIds,
     IReadOnlyList<SnapshotTest>? Tests,
     IReadOnlyList<int>? AmbientMutants,
-    IReadOnlyDictionary<string, SnapshotFile> Files
+    IReadOnlyDictionary<string, SnapshotFile> Files,
+    string? ClosureIdentity = null
 );
 
 /// <summary>一ファイル分の継承情報</summary>

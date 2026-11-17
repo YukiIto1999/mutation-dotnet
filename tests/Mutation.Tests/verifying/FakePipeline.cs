@@ -48,6 +48,9 @@ internal sealed class FakePipeline : IMutantSource, IWorkerRuns, ISnapshots, IVe
     /// <summary>計画から、実行の結果への対応。既定は計画の全変異を検出</summary>
     public Func<IReadOnlyList<MutantPlan>, OrchestrationResult>? OnExecute { get; init; }
 
+    /// <summary>変異の一覧から、前回の保存から継承する判定への対応。既定は継承なし</summary>
+    public Func<IReadOnlyList<Mutant>, IReadOnlyDictionary<MutantId, MutantVerdict>>? OnInherit { get; init; }
+
     /// <summary>準備が受けた指紋の設定。呼び出しごとに一つ</summary>
     public List<string?> Fingerprinted { get; } = [];
 
@@ -113,7 +116,7 @@ internal sealed class FakePipeline : IMutantSource, IWorkerRuns, ISnapshots, IVe
             new Dictionary<MutantId, DetectionRow>()
         );
 
-    /// <summary>この環境の対象を検査する要求。指紋は継承を使うときだけ添える</summary>
+    /// <summary>この環境の対象を検査する要求。同一性へ畳む設定は継承を使うかによらず添える</summary>
     /// <param name="withBaseline">前回実行の保存から判定を継承するか</param>
     /// <param name="execution">実行と判定の制御。既定は一本の lane で再検証なし</param>
     /// <returns>変異対象を絞らない一回の検査の入力</returns>
@@ -122,7 +125,7 @@ internal sealed class FakePipeline : IMutantSource, IWorkerRuns, ISnapshots, IVe
             TargetRequests(),
             new SelectionRequest([], null, false, [], []),
             execution ?? new ExecutionSettings(1, false, false, false),
-            withBaseline ? "settings" : null,
+            "settings",
             "/out",
             withBaseline
         );
@@ -199,6 +202,7 @@ internal sealed class FakePipeline : IMutantSource, IWorkerRuns, ISnapshots, IVe
     /// <inheritdoc />
     public IReadOnlyDictionary<MutantId, MutantVerdict> Inherit(
         string snapshotPath,
+        string? closureIdentity,
         IReadOnlyList<Mutant> mutants,
         string testAssemblyPath,
         CoverageMap coverage,
@@ -206,7 +210,7 @@ internal sealed class FakePipeline : IMutantSource, IWorkerRuns, ISnapshots, IVe
     )
     {
         Inherited++;
-        return new Dictionary<MutantId, MutantVerdict>();
+        return OnInherit is { } behavior ? behavior(mutants) : new Dictionary<MutantId, MutantVerdict>();
     }
 
     /// <inheritdoc />
@@ -232,7 +236,16 @@ internal sealed class FakePipeline : IMutantSource, IWorkerRuns, ISnapshots, IVe
 
     /// <summary>準備に成功した対象一件</summary>
     private static Result<PreparedTarget, PipelineFailure> PreparedOf(TargetRequest request, string name, string? fingerprint) =>
-        Result.Succeeded(new PreparedTarget(request, $"/work/{name}/{name}.Tests.dll", name, fingerprint));
+        Result.Succeeded(
+            new PreparedTarget(
+                request,
+                $"/work/{name}/{name}.Tests.dll",
+                name,
+                fingerprint,
+                fingerprint is null ? null : $"closure:{fingerprint}",
+                null
+            )
+        );
 
     /// <summary>追記を受け流し 保存もしない判定の記録</summary>
     private sealed class SilentJournal : IVerdictJournal

@@ -1,5 +1,3 @@
-
-
 using Mutation.Mutating.Infrastructure;
 using Mutation.Verifying.Domain;
 using Mutation.Verifying.Infrastructure.Snapshot;
@@ -11,14 +9,14 @@ namespace Mutation.Tests;
 /// <summary>前回判定の継承条件の検査</summary>
 public sealed class SnapshotReuseFacts
 {
-    /// <summary>ファイル・テスト assembly・被覆集合が不変なら判定が継承されること</summary>
+    /// <summary>入力の閉包の同一性・ファイル・テスト assembly・被覆集合が不変なら判定が継承されること</summary>
     [Test]
     public async Task Unchanged_inputs_inherit_verdicts()
     {
         var (sourcePath, testAssemblyPath) = Fixture();
         var mutants = new[] { Mutant(0, sourcePath), Mutant(1, sourcePath) with { Replacement = "a * b" } };
         var document = Document(sourcePath, testAssemblyPath, Saved("Killed", "t1"), Saved("Survived", null, "a * b"));
-        var inherited = SnapshotReuse.Inheritable(document, mutants, testAssemblyPath, Coverage(), Roster);
+        var inherited = SnapshotReuse.Inheritable(document, Closure, mutants, testAssemblyPath, Coverage(), Roster);
         await Assert.That(inherited.Count).IsEqualTo(2);
         await Assert.That(inherited[new MutantId(0)] is MutantVerdict.Killed { KillerTest: "t1" }).IsTrue();
         await Assert.That(inherited[new MutantId(1)] is MutantVerdict.Survived).IsTrue();
@@ -32,7 +30,7 @@ public sealed class SnapshotReuseFacts
         var mutants = new[] { Mutant(0, sourcePath) };
         var document = Document(sourcePath, testAssemblyPath, Saved("Killed", "t1"));
         await File.AppendAllTextAsync(sourcePath, "// changed\n");
-        var inherited = SnapshotReuse.Inheritable(document, mutants, testAssemblyPath, Coverage(), Roster);
+        var inherited = SnapshotReuse.Inheritable(document, Closure, mutants, testAssemblyPath, Coverage(), Roster);
         await Assert.That(inherited.Count).IsEqualTo(0);
     }
 
@@ -44,7 +42,36 @@ public sealed class SnapshotReuseFacts
         var mutants = new[] { Mutant(0, sourcePath) };
         var document = Document(sourcePath, testAssemblyPath, Saved("Killed", "t1"));
         await File.AppendAllTextAsync(testAssemblyPath, "x");
-        var inherited = SnapshotReuse.Inheritable(document, mutants, testAssemblyPath, Coverage(), Roster);
+        var inherited = SnapshotReuse.Inheritable(document, Closure, mutants, testAssemblyPath, Coverage(), Roster);
+        await Assert.That(inherited.Count).IsEqualTo(0);
+    }
+
+    /// <summary>入力の閉包の同一性が前回と違えば、ファイルと被覆が前回と同じ変異でも継承されないこと</summary>
+    /// <remarks>設定、他のファイル、参照する assembly、analyzer と generator、テストの補助 file の変化は、どれも同一性を変える</remarks>
+    [Test]
+    public async Task A_different_closure_identity_inherits_nothing_even_when_the_file_and_coverage_match()
+    {
+        var (sourcePath, testAssemblyPath) = Fixture();
+        var mutants = new[] { Mutant(0, sourcePath) };
+        var document = Document(sourcePath, testAssemblyPath, Saved("Killed", "t1"));
+        var inherited = SnapshotReuse.Inheritable(document, "another-closure", mutants, testAssemblyPath, Coverage(), Roster);
+        await Assert.That(inherited.Count).IsEqualTo(0);
+    }
+
+    /// <summary>入力の閉包の同一性を示せない側があれば、継承されないこと</summary>
+    /// <param name="saved">保存が持つ同一性。前の版が書いた保存や同一性を求めなかった走行の保存は不在</param>
+    /// <param name="current">今回の同一性。入力を読めなかったときは不在</param>
+    /// <returns>検査の完了</returns>
+    [Test]
+    [Arguments(null, "closure")]
+    [Arguments("closure", null)]
+    [Arguments(null, null)]
+    public async Task An_unknown_closure_identity_on_either_side_inherits_nothing(string? saved, string? current)
+    {
+        var (sourcePath, testAssemblyPath) = Fixture();
+        var mutants = new[] { Mutant(0, sourcePath) };
+        var document = Document(sourcePath, testAssemblyPath, Saved("Killed", "t1")) with { ClosureIdentity = saved };
+        var inherited = SnapshotReuse.Inheritable(document, current, mutants, testAssemblyPath, Coverage(), Roster);
         await Assert.That(inherited.Count).IsEqualTo(0);
     }
 
@@ -64,7 +91,7 @@ public sealed class SnapshotReuseFacts
             new HashSet<MutantId>(),
             null
         );
-        var inherited = SnapshotReuse.Inheritable(document, mutants, testAssemblyPath, coverage, Roster);
+        var inherited = SnapshotReuse.Inheritable(document, Closure, mutants, testAssemblyPath, coverage, Roster);
         await Assert.That(inherited.ContainsKey(new MutantId(0))).IsTrue();
         await Assert.That(inherited.ContainsKey(new MutantId(1))).IsFalse();
     }
@@ -76,9 +103,12 @@ public sealed class SnapshotReuseFacts
         var (sourcePath, testAssemblyPath) = Fixture();
         var mutants = new[] { Mutant(0, sourcePath), Mutant(1, sourcePath) with { Replacement = "違う置換" } };
         var document = Document(sourcePath, testAssemblyPath, Saved("Killed", "t1"), Saved("Survived", null, "a * b"));
-        var inherited = SnapshotReuse.Inheritable(document, mutants, testAssemblyPath, Coverage(), Roster);
+        var inherited = SnapshotReuse.Inheritable(document, Closure, mutants, testAssemblyPath, Coverage(), Roster);
         await Assert.That(inherited.Count).IsEqualTo(0);
     }
+
+    /// <summary>今回の入力の閉包の同一性として保存に添える値</summary>
+    private const string Closure = "closure";
 
     private static readonly TestRoster Roster = new(["test-0", "test-1"], [0, 0]);
 
@@ -121,7 +151,8 @@ public sealed class SnapshotReuseFacts
             new Dictionary<string, SnapshotFile>(StringComparer.Ordinal)
             {
                 [sourcePath] = new(SnapshotStore.HashOf(sourcePath), mutants),
-            }
+            },
+            ClosureIdentity: Closure
         );
 
     private static SnapshotMutant Saved(string status, string? killedBy, string replacement = "a - b") =>

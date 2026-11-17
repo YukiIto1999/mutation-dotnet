@@ -52,7 +52,7 @@ internal sealed class MutantSourceFromMutating(
         return Result.Succeeded<IReadOnlyList<Result<PreparedTarget, PipelineFailure>>>(results);
     }
 
-    /// <summary>対象一件の準備の結果の写し。成功なら差分の解決と生成入力の控えと指紋の算出</summary>
+    /// <summary>対象一件の準備の結果の写し。成功なら差分の解決と、変更の影響による候補の範囲の選択と、生成入力の控えと同一性の算出</summary>
     private Result<PreparedTarget, PipelineFailure> Describe(
         TargetRequest target,
         Result<PreparedProject, PipelineFailure> project,
@@ -71,13 +71,19 @@ internal sealed class MutantSourceFromMutating(
             return changeFailure;
         }
 
-        prepared[target.ProjectPath] = new GenerationInput(value.Sut, selection, changes);
+        var impact = GenerateMutants.Assess(changes, value.Graph, selection);
+        prepared[target.ProjectPath] = new GenerationInput(value.Sut, selection, changes, impact);
+        var identity = fingerprintSettings is { } settings
+            ? fingerprints.Compute(value.Sut, value.TestAssembly, settings, changes, impact?.Key ?? "")
+            : null;
         return Result.Succeeded(
             new PreparedTarget(
                 target,
                 value.TestAssembly,
                 Path.GetFileNameWithoutExtension(value.Sut.OutputPath),
-                fingerprintSettings is { } settings ? fingerprints.Compute(value.Sut, settings, changes) : null
+                identity?.Fingerprint,
+                identity?.Closure,
+                impact?.Selection
             )
         );
     }
@@ -88,7 +94,7 @@ internal sealed class MutantSourceFromMutating(
         var input = prepared.TryGetValue(target.Request.ProjectPath, out var found)
             ? found
             : throw new InvalidOperationException("PrepareAsync の成功が先に要る");
-        var compiled = generateMutants.Execute(input.Sut, input.Selection, input.Changes, mutatedDirectory);
+        var compiled = generateMutants.Execute(input.Sut, input.Selection, input.Changes, input.Impact, mutatedDirectory);
         if (compiled.IsFailed(out var failure, out var artifact))
         {
             return failure;
@@ -109,5 +115,11 @@ internal sealed class MutantSourceFromMutating(
     /// <param name="Sut">対象 project の csc 呼び出し</param>
     /// <param name="Selection">変異対象の選別</param>
     /// <param name="Changes">差分運用の基点から変わった行。差分運用でなければ不在</param>
-    private sealed record GenerationInput(CscInvocation Sut, MutationSelection Selection, ChangedLines? Changes);
+    /// <param name="Impact">変更の影響から選んだ候補の範囲。差分運用でなければ不在</param>
+    private sealed record GenerationInput(
+        CscInvocation Sut,
+        MutationSelection Selection,
+        ChangedLines? Changes,
+        ImpactAssessment? Impact
+    );
 }

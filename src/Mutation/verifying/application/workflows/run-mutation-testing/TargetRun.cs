@@ -31,7 +31,7 @@ internal sealed class TargetRun(
         session.Clock.StartPhase();
         if (session.Request.WithBaseline && TryRebuild(session, layout, target) is { } reused)
         {
-            return Result.Succeeded(reused);
+            return Result.Succeeded(reused with { Selection = target.Selection });
         }
 
         return await MutateAndTestAsync(session, layout, target).ConfigureAwait(false);
@@ -129,6 +129,7 @@ internal sealed class TargetRun(
                     session.Request.Execution,
                     session.Request.WithBaseline,
                     target.Fingerprint,
+                    target.ClosureIdentity,
                     artifact.MutatedAssemblyPath,
                     layout.SnapshotPath,
                     session.Progress,
@@ -145,7 +146,8 @@ internal sealed class TargetRun(
                 new TargetTimings(artifact.MutateMs, artifact.CompileMs, baselineMs, session.Clock.EndPhase()),
                 verdicts.Timings,
                 verdicts.WorkerRestarts,
-                verdicts.Detections
+                verdicts.Detections,
+                target.Selection
             )
         );
     }

@@ -5,13 +5,13 @@ using StructuredTask = Microsoft.Build.Logging.StructuredLogger.Task;
 
 namespace Mutation.Mutating.Infrastructure.Msbuild;
 
-/// <summary>binlog からの csc 呼び出しの回収</summary>
-public static class BinlogCompilations
+/// <summary>binlog に記録された compiler 呼出しと project 参照の回収</summary>
+internal static class BinlogCompilations
 {
     /// <summary>binlog に記録された全 project の csc 呼び出しの列挙。参照専用 assembly の生成は除く</summary>
     /// <param name="binlogPath">読み取る binlog の path</param>
-    /// <returns>project path から csc 呼び出しへの対応。同一 project の複数回は最後を採る</returns>
-    public static IReadOnlyDictionary<string, CscInvocation> Read(string binlogPath)
+    /// <returns>project ごとの最後の compiler 呼出しと、MSBuild の評価から得た project 参照</returns>
+    public static (IReadOnlyDictionary<string, CscInvocation> Invocations, ProjectReferenceGraph References) Read(string binlogPath)
     {
         var build = BinaryLog.ReadBuild(binlogPath);
         var invocations = new Dictionary<string, CscInvocation>(StringComparer.OrdinalIgnoreCase);
@@ -48,7 +48,7 @@ public static class BinlogCompilations
                 output
             );
         });
-        return invocations;
+        return (invocations, new ProjectReferenceGraph(build));
     }
 
     /// <summary>先頭の csc 実行 file を除いた引数列の取り出し</summary>

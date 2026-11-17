@@ -110,8 +110,11 @@ public static class RunCommand
 
         if (result.UnjudgedCount > 0)
         {
+            var runnerFailures = result.RunnerFailureCount > 0
+                ? $"。うち {result.RunnerFailureCount} 件は test runner の失敗で、検出には数えていない"
+                : "";
             await Console.Error.WriteLineAsync(
-                $"判定を確定できなかった変異 {result.UnjudgedCount} 件を Pending として報告に残した。全件の判定は確定していない"
+                $"判定を確定できなかった変異 {result.UnjudgedCount} 件を Pending として報告に残した。全件の判定は確定していない{runnerFailures}"
             ).ConfigureAwait(false);
             return UnjudgedRemain;
         }

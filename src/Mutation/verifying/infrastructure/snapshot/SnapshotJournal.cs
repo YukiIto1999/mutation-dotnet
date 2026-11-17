@@ -96,6 +96,7 @@ internal sealed class SnapshotJournal : IVerdictJournal
             new SnapshotContext(
                 request.TestAssemblyPath,
                 request.Fingerprint,
+                request.ClosureIdentity,
                 request.MutatedAssemblyPath,
                 request.CompileErrorIds,
                 request.Baseline.Roster

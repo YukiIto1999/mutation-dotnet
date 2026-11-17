@@ -35,6 +35,20 @@ build そのものの失敗だけは全対象に及ぶ失敗として、実行�
 どこを変異させるかは、ファイルの glob、演算子名、呼び出し名、変更行の選別を `mutating/domain/aggregates/policy/MutationPolicy.cs` が一手に決める。
 振る舞いは `tests/Mutation.Tests/mutating/SemanticFilterFacts.cs` と `MutationPolicyFacts.cs` が固定する。
 
+`--since` の実行では、変異させるファイルの集合を、変わったファイルが対象の入力へ届く関係から選ぶ。
+`GenerateMutants.Assess` が `mutating/domain/services/ChangeImpact.cs` を呼び、その結果の集合を `MutationPolicy` へ渡す。
+関係の判定に使う入力は、`mutating/infrastructure/msbuild/TargetGraphs.cs` が MSBuild の評価と compiler 呼出しから作る。
+project 参照の解釈は StructuredLogger の `ProjectReferenceGraph` に委ね、対象とテストから推移的に辿った project の compiler 入力を集める。assembly 名や出力 directory では参照関係を推測しない。
+増分 build で参照先の compiler 呼出しが省かれた場合、`PrepareTarget.cs` が `--no-incremental` の再 build で補う。
+変更は、production、テスト、参照先、build 入力、削除、関係不明に分類する。compiler 入力に現れないことだけでは影響なしにせず、関係不明なら全範囲へ広げる。既知の入力でない build 成果物だけを除外する。
+届く関係が一つもなければ `no-impact` で候補は空である。
+届く関係があれば、変えたソースの未変更の呼び出し元と、変えたテストが検出する production を file より細かく選べないので、対象の全範囲(`full-production`)を候補にし、呼び出し元を `callers-of-changed-production` として理由に加える。
+`--changed-lines` は広げず、変えたソースだけを候補にする明示した部分集合(`changed-lines`)にし、ほかの関係を `unanalysed` として残す。
+消えたファイルと、行の差分を持たない binary のファイルは、`mutating/infrastructure/git/ChangedFiles.cs` が `git diff --name-only` から拾い、`ChangedLines.Deleted` に載せる。
+選択は `CandidateSelection` として `PreparedTarget`、`TargetResult` を通り、`RunStateReport.cs` が報告の `run.selection` に書く。
+選択を見分ける鍵(`ImpactAssessment.Key`)は、全体の再構築の指紋に含める。
+振る舞いは `tests/Mutation.Tests/mutating/ChangeImpactFacts.cs`、`tests/Mutation.Tests/root/ChangedLinesRunFacts.cs` と `ChangedLinesDeletionFacts.cs`、`tests/e2e/medium/impact/verify-impact.sh` が固定する。
+
 既定の演算子は `CandidateCollector.DefaultOperators` が列挙する 13 種で、各演算子は `IMutationOperator` を実装する。
 `--ignore-operators` は `IMutationOperator.Name`、既定では型名と突き合わせる。
 演算子の実装は `mutating/infrastructure/roslyn/operators/` にある。
@@ -149,14 +163,16 @@ probe を通らないループと、例外を握り潰す包括的な catch は�
 `HitLimits` の値は `tests/Mutation.Tests/verifying/VerdictVocabularyFacts.cs` が固定する。
 
 判定は `verifying/infrastructure/workers/VerdictInterpretation.cs` が決める。
-baseline で成功したテストが失敗すれば `Killed`、全て成功すれば `Survived` になる。
+baseline で成功したテストが失敗すれば `Killed`、全て成功すれば `Survived` になる。`Survived` にするのは worker が `survived` を返したときだけで、`killed`、`survived`、`hitlimit` 以外の結末の値は `UnjudgedCause.RunnerFailure` の未判定にする。
 応答が無く worker が終了していれば `Killed` で、検出の経緯は `(process crash)` とする。
-応答が無く worker が生きている場合と、worker が `Failed` を返した場合は `TimedOut` になる。
+worker が `Failed` を返した場合、応答が無く期限切れでも取り消しでもなく worker も生きている場合、共有 worker と隔離 process が init に失敗した場合も、`UnjudgedCause.RunnerFailure` の未判定にする。
+この未判定は検出にも未検出にも数えず、`Pending` として報告し、`unjudgedBy.runnerFailure` に数える。
+取り消しを受けた後の結果は、どの場合も採らない。
 期限切れで止めた worker は、終了済みでも `Killed` でなく `TimedOut` として扱う(`WorkerExchange.DeadlineExpired`)。
 probe 上限の超過による `TimedOut` は時間によらないので、そのまま検出に数える。
-`Killed` と `TimedOut` は score の検出に数えられるので、worker の異常終了と失敗も検出に入る。
+`Killed` と `TimedOut` は score の検出に数えられるので、worker process が mutant の実行中に落ちた場合も検出に入る。
 Microsoft.Testing.Platform の run は killer test の名前を返さないため、`TerminalOutput.cs` が端末出力の `failed <名前> (<所要時間>)` の行から取り出し、取り出せなければ `(unknown test)` とする。
-`tests/Mutation.Tests/verifying/VerdictInterpretationFacts.cs` が固定する。
+`tests/Mutation.Tests/verifying/VerdictInterpretationFacts.cs`、`TestingOrchestratorStartFailureFacts.cs` が固定する。
 
 期限切れの `TimedOut` は、競合で遅れただけの変異を検出に数えないよう、`TimeoutAdjudication.cs` が確かめ直す。
 期限は基準実行の所要時間から決めた固定の値なので、機が基準より遅ければ無限走行でない変異も超えるためである。
@@ -187,27 +203,34 @@ SIGKILL は受け取れないので、止まった走行の判定は追記の記
 
 ## 継承
 
-`--with-baseline` を指定すると、対象ごとに `work/<対象名>/snapshot.json` へ判定を保存し、次の実行で再利用する。
+保存は、継承を求めない走行も含めて、全ての走行が対象ごとに `work/<対象名>/snapshot.json` へ書く。
+`--with-baseline` を指定すると、次の実行がそれを再利用する。
 保存と再利用の所在は `verifying/infrastructure/snapshot/` にある。
-再利用には、全体の再構築と変異ごとの継承の二つの経路があり、照合する入力が違う。
+再利用には、全体の再構築と変異ごとの継承の二つの経路があり、どちらも、入力の閉包の同一性が前回と一致することを条件にする。
+
+閉包の同一性は `mutating/infrastructure/fingerprint/CompilationFingerprint.cs` が、`InputClosure.cs` の記述から計算し、`ReuseIdentity` として返す。
+閉包には、csc 引数の文字列と、ソース、additional file、embed する file、analyzer config、参照する assembly、analyzer と generator、resource、署名の鍵の内容を含める。
+テスト assembly の directory の全 file の内容(`TestResults` の下を除く)、engine と worker と compiler の assembly の内容も含める。
+さらに runtime の版と識別子、OS の版、環境変数の名前と値、作業 directory、設定の要約を含める。
+環境変数は hash にだけ使い、値を平文で保存しない。
+読めない入力が一つでもあれば同一性は不在になり、その走行は何も継承せず、保存も継承の根拠を持たない。
+全体の指紋は、閉包に、対象のソースごとの変わった行の範囲と、`--since` が選んだ候補の範囲の鍵を加える。
+同一性は `PreparedTarget` から `VerificationRequest` と `SnapshotSaveRequest` を通り、`SnapshotDocument.ClosureIdentity` に保存される。
+判定を確定できなかった変異が残る保存も、同一性を持つ。
 
 全体の再構築は、build と対象の特定の後、変異の生成より前に判定する。
-生成入力の指紋、テスト assembly の byte hash、保存した変異 assembly の byte hash が全て前回と一致すると、`SnapshotReconstruction.cs` が変異の生成、compile、baseline、テスト実行を全て省いて前回の判定を復元する。
-指紋は `mutating/infrastructure/fingerprint/CompilationFingerprint.cs` が、csc 引数の文字列、csc が読む全ソースの path と内容 hash、差分運用なら対象のソースごとの変わった行の範囲、選別と検査の設定から計算する。
-指紋を計算するのは `--with-baseline` のときだけなので、全体の再構築には、指紋を保存した前回の実行が要る。
-参照する assembly、analyzer、generator、`AdditionalFiles`、analyzer config の内容と、tool と compiler の版は、指紋に入らない。
-それらの path が csc 引数に現れる場合は、path の文字列だけが指紋に入る。
+全体の指紋、テスト assembly の byte hash、保存した変異 assembly の byte hash が全て前回と一致すると、`SnapshotReconstruction.cs` が変異の生成、compile、baseline、テスト実行を全て省いて前回の判定を復元する。
 
 全体が一致しないときは、baseline の後に `SnapshotReuse.cs` が変異ごとに判定を継承する。
-継承する変異は、そのファイルの内容 hash、ファイル内の変異列の演算子と位置と置換、テスト assembly の byte hash、変異を被覆する通常のテストの集合が、前回と全て一致するものに限る。
+継承する変異は、閉包の同一性とテスト assembly の byte hash が前回と一致する保存の中で、そのファイルの内容 hash、ファイル内の変異列の演算子と位置と置換、変異を被覆する通常のテストの集合が、前回と全て一致するものに限る。
 継承するのは `Killed`、`Survived`、`TimedOut` である。
-この経路は生成入力の指紋と設定を照合せず、他のファイルの内容も照合しない。
-そのため、設定の変更や別のファイルの変更が継承する変異の意味を変えても、上の条件が一致すれば前回の判定を継承する。
-判定の合成は、今回の `CompileError`、`NoCoverage`、`Ignored` を先に置き、継承した判定、実行した判定の順に上書きする。
+設定、他のファイル、参照する assembly、analyzer と generator、additional file、analyzer config、テストの補助 file のどれが変わっても閉包の同一性が変わるので、継承しない。
+同一性を持たない前の版の保存も、継承しない。
+判定の合成は、今回の `CompileError`、`NoCoverage`、`Ignored` を先に置き、継承した判定は今回の分類のない変異にだけ置き、実行した判定を最後に置く。
 所在は `verifying/application/workflows/verify-mutants/VerdictMerge.cs` の `Merge` である。
-この上書きの順序が今回の分類に与える影響は、実行で確かめていない。
-即時に確定した判定が、実行した判定と並んで合成の結果に残ることは、`tests/Mutation.Tests/verifying/VerifyMutantsFacts.cs` が固定する。
-`tests/Mutation.Tests/verifying/SnapshotReuseFacts.cs` と `SnapshotReconstructionFacts.cs` は、上の局所的な条件を固定するもので、依存の閉包の健全性までは保証しない。
+継承が届くのは今回の実行計画に載った変異だけで、`VerifyMutants` は継承した件数を実行計画に載った変異の中で数える。
+振る舞いは `tests/Mutation.Tests/verifying/VerifyMutantsFacts.cs`、`SnapshotReuseFacts.cs`、`SnapshotStoreFacts.cs`、`VerifyMutantsResumeFacts.cs`、`tests/Mutation.Tests/mutating/CompilationFingerprintFacts.cs`、`tests/e2e/medium/reuse/verify-reuse.sh` が固定する。
+閉包が見ない入力は [limitations.md](limitations.md) にある。
 
 判定の確定ごとに、`SnapshotJournal.cs` が保存に並べた `work/<対象名>/snapshot.verdicts.jsonl` へ一行ずつ追記する。
 一行目は、実行の前に分かっている判定(即時確定と継承した判定)を持ち、これから実行する変異を未判定の `Pending` で置いた保存の全体である。
@@ -235,8 +258,7 @@ SIGKILL は受け取れないので、止まった走行の判定は追記の記
 | `reports/` | 対象をまたいで一つの `mutation-report.json` と `timings.json` |
 
 `--since` の実行は、全量の実行の保存と変異 assembly を上書きしないよう、`since/` の下に置く。
-`--mutate`、`--ignore-operators`、`--ignore-methods` だけが違う実行は同じ置き場を共有する。
-全体の再構築は設定を含む指紋が違えば起きないが、変異ごとの継承は設定を照合しないので、これらを切り替えた実行の間で前回の判定を継承し得る。
+`--mutate`、`--ignore-operators`、`--ignore-methods` だけが違う実行は同じ置き場を共有するが、設定の要約が入力の閉包の同一性に入るので、これらを切り替えた実行は、前回の保存を継承も再構築もせず、保存を上書きする。
 
 ## 報告
 
@@ -251,10 +273,13 @@ SIGKILL は受け取れないので、止まった走行の判定は追記の記
 `phases` は build、mutate、compile、baseline、testing、total の段階別時間、`counters` は変異数、テスト数、score、worker の再起動回数、判定別件数、`targets` は対象別の内訳と中断、`mutants` は変異別の所要時間である。
 変異別の記録が持つ実行数、所要時間、隔離の実行だったかは、`tests/Mutation.Tests/verifying/TestingOrchestratorTimingFacts.cs` が固定する。
 `mutation-report.json` と `timings.json` は、走行が全変異の判定を確定したかを `RunStateReport.cs` が組み立てる `run` に書く。
-`state` は `MutationRunResult.State` で、全件が確定していれば `completed`、取り消しで止まっていれば `interrupted`、競合で判定できなかった変異が残れば `unjudged` である。
+`state` は `MutationRunResult.State` で、全件が確定していれば `completed`、取り消しで止まっていれば `interrupted`、取り消し以外の失敗で判定に至らなかった対象があれば `failed`、競合で判定できなかった変異か test runner の失敗で判定できなかった変異が残れば `unjudged` である(この順に優先する)。
+判定に至らなかった対象は `run.failedTargets`(取り消しで止まった対象は `run.interruptedTargets`)に名前を残し、変異の未判定がなくても `complete` は偽である。
 判定を確定できなかった変異は `MutantVerdict.Unjudged` で表し、報告の status は `Pending`、`statusReason` に理由を書く。
 検出にも未検出にも数えないので score の母数に入らず、`changed-lines` の判定は、未検出がなく未判定が残るときに合格と言わず失敗として返す。
 形式は `tests/Mutation.Tests/verifying/RunStateReportFacts.cs` が固定する。
+`--since` の実行では、`run.selection` が対象ごとに、選んだ範囲、理由、未分析の関係、入力でないと判断した file を持つ。
+`StrykerReport.Parse` は、`run.selection[].unanalysed` を読み戻した報告の `Unanalysed` に取り出し、`changed-lines` が判定の後に出力する。
 
 `changed-lines` command は、`run --since` が書いた報告を、`composition/adapters/ChangedLinesFromGit.cs` が返す変更行と突き合わせ、変わった行に重なる未検出の mutant を判定する。
 `Survived` と `NoCoverage` を未検出と数える。

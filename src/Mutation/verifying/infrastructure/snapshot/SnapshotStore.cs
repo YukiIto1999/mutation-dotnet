@@ -23,7 +23,10 @@ public static class SnapshotStore
     public static string JournalPathOf(string snapshotPath) => Path.ChangeExtension(snapshotPath, JournalExtension);
 
     /// <summary>実行全体の判定の、次回の継承元としての保存形への写像</summary>
-    /// <remarks>判定を確定できなかった変異が残る保存は、生成入力の指紋と変異 assembly の hash を持たない。全体の再構築に一致せず、変異ごとの継承だけが使える</remarks>
+    /// <remarks>
+    /// 判定を確定できなかった変異が残る保存は、生成入力の全体の指紋と変異 assembly の hash を持たない。全体の再構築に一致せず、変異ごとの継承だけが使える
+    /// 入力の閉包の同一性は、判定を確定できなかった変異が残る保存も持つ。止まった走行の続きを、同じ入力に対してだけ許すため
+    /// </remarks>
     /// <param name="mutants">全変異</param>
     /// <param name="verdicts">変異の連番から確定結果への対応</param>
     /// <param name="tests">連番順のテストの素性</param>
@@ -65,7 +68,8 @@ public static class SnapshotStore
                 ))
                 .ToArray(),
             coverage.AmbientMutants.Select(id => id.Value).Order().ToArray(),
-            files
+            files,
+            context.ClosureIdentity
         );
     }
 
@@ -138,13 +142,15 @@ public static class SnapshotStore
 
 /// <summary>保存に添える指紋と成果物の素性</summary>
 /// <param name="TestAssemblyPath">テスト assembly の絶対 path</param>
-/// <param name="CompilationFingerprint">変異の生成入力の指紋</param>
+/// <param name="CompilationFingerprint">変異の生成入力の全体の指紋</param>
+/// <param name="ClosureIdentity">判定を決める入力の閉包の同一性</param>
 /// <param name="MutatedAssemblyPath">変異 assembly の絶対 path</param>
 /// <param name="CompileErrorIds">rollback で無効化された変異の連番</param>
 /// <param name="Roster">連番順のテストの名簿</param>
 public sealed record SnapshotContext(
     string TestAssemblyPath,
     string? CompilationFingerprint,
+    string? ClosureIdentity,
     string MutatedAssemblyPath,
     IReadOnlySet<MutantId> CompileErrorIds,
     TestRoster Roster

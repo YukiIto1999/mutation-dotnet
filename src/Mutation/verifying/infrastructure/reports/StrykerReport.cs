@@ -105,7 +105,7 @@ public static class StrykerReport
                     .EnumerateArray()
                     .Select(mutant => Recorded(Path.GetFullPath(Path.Combine(projectRoot, file.Name)), mutant)))
                 .ToArray();
-            return Result.Succeeded(new RecordedReport(projectRoot, mutants));
+            return Result.Succeeded(new RecordedReport(projectRoot, mutants, Unanalysed(root)));
         }
         catch (Exception exception)
             when (exception is JsonException or KeyNotFoundException or InvalidOperationException or FormatException)
@@ -145,6 +145,23 @@ public static class StrykerReport
         var verdict = VerdictNames.Restore(status, killer);
         return VerdictNames.For(verdict) == status ? verdict : throw new FormatException($"未知の status {status}");
     }
+
+    /// <summary>報告の run が残した、`--since` の選別で未分析にした関係の記述。差分運用でない報告や前の版の報告では空</summary>
+    private static string[] Unanalysed(JsonElement root) =>
+        root.TryGetProperty("run", out var run)
+        && run.TryGetProperty("selection", out var selection)
+        && selection.ValueKind == JsonValueKind.Array
+            ? [.. selection.EnumerateArray().SelectMany(UnanalysedOf)]
+            : [];
+
+    /// <summary>対象一件の選別が残した未分析の関係と件数の列</summary>
+    private static IEnumerable<string> UnanalysedOf(JsonElement target) =>
+        target
+            .GetProperty("unanalysed")
+            .EnumerateArray()
+            .Select(reason =>
+                $"{RequiredString(target, "target")}: {RequiredString(reason, "relation")} {reason.GetProperty("paths").GetArrayLength().ToString(CultureInfo.InvariantCulture)} 件"
+            );
 
     /// <summary>必須の文字列の欄の値。null なら読めない報告として失敗させる</summary>
     private static string RequiredString(JsonElement element, string name) =>

@@ -15,6 +15,9 @@ public sealed class PrepareTargetFacts
     /// <summary>最初の binlog にコンパイル記録がない対象</summary>
     private static readonly TargetProjects Missing = new(Path.GetFullPath("missing.csproj"), Path.GetFullPath("missing.Tests.csproj"), "Debug");
 
+    /// <summary>自身の compile は記録されているが、参照する project の compile 記録が欠けた対象</summary>
+    private static readonly TargetProjects Stale = new(Path.GetFullPath("stale.csproj"), Path.GetFullPath("stale.Tests.csproj"), "Debug");
+
     /// <summary>全対象を特定できた場合の不要な再 build の防止</summary>
     /// <returns>既存の成果物だけで準備が成功することの検査</returns>
     [Test]
@@ -63,9 +66,28 @@ public sealed class PrepareTargetFacts
         await Assert.That(ready!.TestAssembly).IsEqualTo("ready.Tests.dll");
     }
 
-    /// <summary>不足した一件以外の再 build を失敗させる build の制御</summary>
+    /// <summary>対象自身の compile が記録されていても、参照する project の compile 記録が欠けた対象だけが、再 build で補われること</summary>
+    /// <returns>再 build の対象と、補った後の入力の検査</returns>
+    [Test]
+    public async Task A_target_with_an_unbuilt_reference_is_rebuilt_while_a_complete_target_is_not()
+    {
+        var builds = new Builds();
+        var preparation = new PrepareTarget(builds, new Locations(false));
+
+        var outcome = await preparation.ExecuteAsync([Stale, Ready], "work");
+
+        await Assert.That(outcome.IsFailed(out _, out var prepared)).IsFalse();
+        await Assert.That(builds.Rebuilt.Select(project => project.ProjectPath).ToArray()).IsEquivalentTo([Stale.ProjectPath]);
+        await Assert.That(prepared![0].IsFailed(out _, out var stale)).IsFalse();
+        await Assert.That(stale!.Graph.UnbuiltProjects).IsEmpty();
+    }
+
+    /// <summary>不足した一件と参照の記録が欠けた一件以外の再 build を失敗させ、再 build の対象を記録する build の制御</summary>
     private sealed class Builds : IBinlogBuilds
     {
+        /// <summary>再 build を求められた対象</summary>
+        public List<TargetProjects> Rebuilt { get; } = [];
+
         /// <inheritdoc />
         public Task<Result<string, PipelineFailure>> BuildAsync(
             IReadOnlyList<TargetProjects> projects,
@@ -78,7 +100,8 @@ public sealed class PrepareTargetFacts
             string workDirectory
         )
         {
-            Result<string, PipelineFailure> result = projects.Count == 1 && projects[0] == Missing
+            Rebuilt.AddRange(projects);
+            Result<string, PipelineFailure> result = projects.Count == 1 && (projects[0] == Missing || projects[0] == Stale)
                 ? Result.Succeeded("rebuilt.binlog")
                 : Result.Failed<PipelineFailure>(new PipelineFailure.BuildFailed("利用可能な対象の再 build"));
             return Task.FromResult(result);
@@ -90,14 +113,21 @@ public sealed class PrepareTargetFacts
     private sealed class Locations(bool missingRemainsUnavailable) : ILocateTargets
     {
         /// <inheritdoc />
-        public Result<(CscInvocation Sut, string TestAssembly), PipelineFailure> Locate(
+        public Result<LocatedTarget, PipelineFailure> Locate(
             string binlogPath,
             TargetProjects projects
         )
         {
             if (projects == Ready)
             {
-                return Result.Succeeded((new CscInvocation(Ready.ProjectPath, [], Path.GetFullPath("ready.dll")), "ready.Tests.dll"));
+                return Result.Succeeded(Located(Ready, "ready.dll", "ready.Tests.dll", []));
+            }
+
+            if (projects == Stale)
+            {
+                return Result.Succeeded(
+                    Located(Stale, "stale.dll", "stale.Tests.dll", binlogPath == "initial.binlog" ? [Path.GetFullPath("Library.csproj")] : [])
+                );
             }
 
             if (binlogPath == "initial.binlog")
@@ -107,7 +137,20 @@ public sealed class PrepareTargetFacts
 
             return missingRemainsUnavailable
                 ? Result.Failed<PipelineFailure>(new PipelineFailure.NoTestsFound("missing.Tests.dll"))
-                : Result.Succeeded((new CscInvocation(Missing.ProjectPath, [], Path.GetFullPath("missing.dll")), "missing.Tests.dll"));
+                : Result.Succeeded(Located(Missing, "missing.dll", "missing.Tests.dll", []));
         }
+
+        /// <summary>空の入力を持つ、特定済みの対象</summary>
+        private static LocatedTarget Located(TargetProjects projects, string output, string testAssembly, string[] unbuilt) =>
+            new(
+                new CscInvocation(projects.ProjectPath, [], Path.GetFullPath(output)),
+                testAssembly,
+                new TargetGraph(
+                    new ProjectInputs(projects.ProjectPath, [], []),
+                    new ProjectInputs(projects.TestProjectPath, [], []),
+                    [],
+                    unbuilt
+                )
+            );
     }
 }

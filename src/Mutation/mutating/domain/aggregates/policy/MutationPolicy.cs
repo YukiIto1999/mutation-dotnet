@@ -10,7 +10,7 @@ public sealed class MutationPolicy
     /// <summary>含めるファイルの glob 範囲</summary>
     private readonly MutationScope scope;
 
-    /// <summary>差分運用の対象ファイル集合。絞らないなら不在</summary>
+    /// <summary>差分運用で変異させるファイルの集合。変更の影響から選んだ範囲で、絞らないなら不在</summary>
     private readonly IReadOnlySet<string>? changedFiles;
 
     /// <summary>変異を変更行にも絞る場合の差分</summary>
@@ -24,7 +24,7 @@ public sealed class MutationPolicy
 
     /// <summary>選別方針の組み立て</summary>
     /// <param name="scope">含めるファイルの glob 範囲</param>
-    /// <param name="changedFiles">差分運用で対象を絞るときの、変更ファイルの絶対 path 集合。絞らないなら不在</param>
+    /// <param name="changedFiles">差分運用で対象を絞るときの、変異させるファイルの絶対 path 集合。変更の影響から選んだ範囲で、空なら変異させない。絞らないなら不在</param>
     /// <param name="ignoredOperators">除外する変異演算子の名前集合</param>
     /// <param name="ignoredMethods">その呼び出しの中を変異させない method 名の集合</param>
     /// <param name="changedLines">変更行にも絞るときの差分</param>

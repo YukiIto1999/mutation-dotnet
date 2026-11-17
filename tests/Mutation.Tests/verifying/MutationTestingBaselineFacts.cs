@@ -28,6 +28,21 @@ public sealed class MutationTestingBaselineFacts
     )
     {
         var pipeline = new FakePipeline("Only");
+
+        var run = await RunAsync(pipeline, withBaseline, detectionMatrix);
+
+        await Assert.That(run.IsFailed(out _, out _)).IsFalse();
+        await Assert.That(pipeline.Consulted.Count > 0).IsEqualTo(reads);
+        await Assert.That(pipeline.Inherited > 0).IsEqualTo(reads);
+    }
+
+    /// <summary>一対象を一本の lane で走らせる設定での一回の変異検査</summary>
+    private static async Task<Result<MutationRunResult, PipelineFailure>> RunAsync(
+        FakePipeline pipeline,
+        bool withBaseline,
+        bool detectionMatrix
+    )
+    {
         var operation = new MutationTesting(pipeline.Workflow, new JudgeChangedLines(new UnusedReports(), new UnusedChanges()));
         var target = pipeline.TargetRequests().Single();
         var options = new MutationRunOptions(
@@ -45,12 +60,7 @@ public sealed class MutationTestingBaselineFacts
             withBaseline,
             detectionMatrix
         );
-
-        var run = await operation.RunAsync(options, _ => { });
-
-        await Assert.That(run.IsFailed(out _, out _)).IsFalse();
-        await Assert.That(pipeline.Consulted.Count > 0).IsEqualTo(reads);
-        await Assert.That(pipeline.Inherited > 0).IsEqualTo(reads);
+        return await operation.RunAsync(options, _ => { });
     }
 
     /// <summary>この検査では使わない報告の読み戻し</summary>

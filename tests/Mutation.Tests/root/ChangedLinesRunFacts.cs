@@ -81,8 +81,114 @@ public sealed partial class ChangedLinesGateFacts
         await Assert.That(last.Completed.Single().Mutants.Count).IsEqualTo(first.Completed.Single().Mutants.Count);
     }
 
+    /// <summary>テストだけの変更が、影響なしにならず対象の全範囲を選び、明示した変更行の部分集合では広げずにテストの変更を未分析として報告に残すこと</summary>
+    [Test]
+    public async Task A_test_only_change_selects_the_whole_scope_and_the_explicit_subset_reports_it_unanalysed()
+    {
+        using var repo = await TempRepository.CreateAsync();
+        await WriteFixtureAsync(repo);
+        var baseRef = await repo.CommitAllAsync();
+        await File.AppendAllTextAsync(repo.PathOf("src/Fixture.Target.Tests/CalculatorTests.cs"), "\n// a test changed\n");
+        var options = new MutationRunOptions(
+            [FixtureTarget(repo)], "Debug", 2, false, false, [], baseRef, false, [], [],
+            repo.PathOf("out/test-only"), false
+        );
+
+        var whole = await RunAsync(options);
+        var subset = await RunAsync(options with { ChangedLinesOnly = true, OutputDirectory = repo.PathOf("out/test-only-lines") });
+
+        var selected = whole.Completed.Single();
+        await Assert.That(selected.Selection!.Scope is SelectionScope.FullProduction).IsTrue();
+        await Assert.That(RelationNames(selected.Selection.Reasons)).IsEquivalentTo(["test-changed"]);
+        await Assert.That(selected.Mutants.Any(m => m.Span.Line == 9)).IsTrue();
+        var narrowed = subset.Completed.Single();
+        await Assert.That(narrowed.Selection!.Scope is SelectionScope.ExplicitSubset).IsTrue();
+        await Assert.That(narrowed.Mutants).IsEmpty();
+        await Assert.That(RelationNames(narrowed.Selection.Unanalysed)).IsEquivalentTo(["test-changed"]);
+    }
+
+    /// <summary>関係が不明な未追跡ファイル、build 設定、削除がそれぞれ対象の全範囲を選ぶこと</summary>
+    [Test]
+    public async Task Unknown_inputs_configuration_and_removed_files_select_the_whole_scope()
+    {
+        using var repo = await TempRepository.CreateAsync();
+        await WriteFixtureAsync(repo);
+        await repo.WriteAsync("src/Fixture.Target/Spare.cs", "namespace Fixture.Target;\n\ninternal static class Spare\n{\n}\n");
+        var baseRef = await repo.CommitAllAsync();
+        var options = new MutationRunOptions(
+            [FixtureTarget(repo)], "Debug", 2, false, false, [], baseRef, false, [], [],
+            repo.PathOf("out/unknown"), false
+        );
+
+        await repo.WriteAsync("docs/guide.md", "documentation only\n");
+        var unknown = (await RunAsync(options)).Completed.Single();
+        File.Delete(repo.PathOf("docs/guide.md"));
+
+        var props = repo.PathOf("src/Directory.Build.props");
+        await File.WriteAllTextAsync(
+            props,
+            (await File.ReadAllTextAsync(props)).Replace("<PropertyGroup>", "<!-- configuration changed -->\n  <PropertyGroup>", StringComparison.Ordinal)
+        );
+        var configured = (await RunAsync(options with { OutputDirectory = repo.PathOf("out/configured") })).Completed.Single();
+
+        File.Delete(repo.PathOf("src/Fixture.Target/Spare.cs"));
+        var removed = (await RunAsync(options with { OutputDirectory = repo.PathOf("out/removed") })).Completed.Single();
+
+        await Assert.That(unknown.Selection!.Scope is SelectionScope.FullProduction).IsTrue();
+        await Assert.That(unknown.Mutants.Any(m => m.Span.Line == 9)).IsTrue();
+        await Assert.That(RelationNames(unknown.Selection.Reasons)).IsEquivalentTo(["unknown-input"]);
+        await Assert.That(unknown.Selection.NotInputs).IsEmpty();
+        await Assert.That(configured.Selection!.Scope is SelectionScope.FullProduction).IsTrue();
+        await Assert.That(RelationNames(configured.Selection.Reasons)).IsEquivalentTo(["config-changed"]);
+        await Assert.That(configured.Mutants.Any(m => m.Span.Line == 9)).IsTrue();
+        await Assert.That(removed.Selection!.Scope is SelectionScope.FullProduction).IsTrue();
+        await Assert.That(RelationNames(removed.Selection.Reasons)).IsEquivalentTo(["config-changed", "file-removed"]);
+    }
+
+    /// <summary>対象が参照する project のソースの変更が、対象のソースが変わらなくても、対象の全範囲を選び、変更行の部分集合では未分析に残ること</summary>
+    [Test]
+    public async Task A_change_in_a_referenced_project_selects_the_whole_scope_and_is_left_unanalysed_by_the_subset()
+    {
+        using var repo = await TempRepository.CreateAsync();
+        await WriteFixtureAsync(repo);
+        await repo.WriteAsync("src/Fixture.Lib/Fixture.Lib.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\">\n</Project>\n");
+        await repo.WriteAsync("src/Fixture.Lib/Lib.cs", "namespace Fixture.Lib;\n\npublic static class Lib\n{\n    public const int Offset = 1;\n}\n");
+        await repo.WriteAsync(
+            "src/Fixture.Target/Fixture.Target.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <ItemGroup>\n    <ProjectReference Include=\"../Fixture.Lib/Fixture.Lib.csproj\" />\n  </ItemGroup>\n</Project>\n"
+        );
+        var baseRef = await repo.CommitAllAsync();
+        await File.AppendAllTextAsync(repo.PathOf("src/Fixture.Lib/Lib.cs"), "\n// the library changed\n");
+        var options = new MutationRunOptions(
+            [FixtureTarget(repo)], "Debug", 2, false, false, [], baseRef, false, [], [],
+            repo.PathOf("out/dependency"), false
+        );
+
+        var whole = (await RunAsync(options)).Completed.Single();
+        var subset = (await RunAsync(options with { ChangedLinesOnly = true, OutputDirectory = repo.PathOf("out/dependency-lines") })).Completed.Single();
+
+        await Assert.That(whole.Selection!.Scope is SelectionScope.FullProduction).IsTrue();
+        await Assert.That(RelationNames(whole.Selection.Reasons)).IsEquivalentTo(["dependency-changed"]);
+        await Assert.That(whole.Mutants.Any(m => m.Span.Line == 9)).IsTrue();
+        await Assert.That(subset.Selection!.Scope is SelectionScope.ExplicitSubset).IsTrue();
+        await Assert.That(subset.Mutants).IsEmpty();
+        await Assert.That(RelationNames(subset.Selection.Unanalysed)).IsEquivalentTo(["dependency-changed"]);
+    }
+
     /// <summary>検証フィクスチャを書いて commit し、生存する 11 行目だけを作業木で書き換えた、その commit の id</summary>
     private static async Task<string> CommitFixtureAsync(TempRepository repo)
+    {
+        await WriteFixtureAsync(repo);
+        var baseRef = await repo.CommitAllAsync();
+        var calculator = repo.PathOf("src/Fixture.Target/Calculator.cs");
+        var source = await File.ReadAllLinesAsync(calculator);
+        source[10] += " // changed";
+        await File.WriteAllLinesAsync(calculator, source);
+        return baseRef;
+    }
+
+    /// <summary>検証フィクスチャと .gitignore の作業木への書き込み。commit はしない</summary>
+    private static async Task WriteFixtureAsync(TempRepository repo)
     {
         var fixture = FixturePath();
         foreach (var relative in new[]
@@ -99,13 +205,11 @@ public sealed partial class ChangedLinesGateFacts
         }
 
         await repo.WriteAsync(".gitignore", "bin/\nobj/\nout/\n");
-        var baseRef = await repo.CommitAllAsync();
-        var calculator = repo.PathOf("src/Fixture.Target/Calculator.cs");
-        var source = await File.ReadAllLinesAsync(calculator);
-        source[10] += " // changed";
-        await File.WriteAllLinesAsync(calculator, source);
-        return baseRef;
     }
+
+    /// <summary>関係の名前の並び</summary>
+    private static string[] RelationNames(IReadOnlyList<ImpactReason> reasons) =>
+        [.. reasons.Select(reason => reason.Relation.Name).Order(StringComparer.Ordinal)];
 
     /// <summary>一時 repository に書いた検証フィクスチャの対象とテストの project</summary>
     private static TargetSpec FixtureTarget(TempRepository repo) =>

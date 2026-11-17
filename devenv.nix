@@ -31,6 +31,8 @@
     bash tests/e2e/medium/changed-lines/verify-changed-lines.sh
     bash tests/e2e/medium/detection-matrix/verify-detection-matrix.sh
     bash tests/e2e/medium/interruption/verify-interruption.sh
+    bash tests/e2e/medium/reuse/verify-reuse.sh
+    bash tests/e2e/medium/impact/verify-impact.sh
   '';
 
   # T3 の全量回帰(gate にしない): T1 と T2 の製品検査を、影響範囲で絞らず全て実行する。
@@ -83,6 +85,8 @@
     stage "e2e の changed-lines" bash tests/e2e/medium/changed-lines/verify-changed-lines.sh
     stage "e2e の detection-matrix" bash tests/e2e/medium/detection-matrix/verify-detection-matrix.sh
     stage "e2e の interruption" bash tests/e2e/medium/interruption/verify-interruption.sh
+    stage "e2e の reuse" bash tests/e2e/medium/reuse/verify-reuse.sh
+    stage "e2e の impact" bash tests/e2e/medium/impact/verify-impact.sh
 
     # 失敗した段があれば 1、無く上限で止まった段があれば未完了の 124
     [ "$status" -ne 0 ] || [ "$stopped" -eq 0 ] || status=124
@@ -269,7 +273,7 @@
     case $engine in
       0) ;;
       124 | 137) finish "$engine" incomplete "未完了: 上限 $limit 秒で分析を止めた" ;;
-      3) finish "$engine" incomplete "未完了: 競合で遅れた timeout を判定できない mutant が残った(reportRun を見る)" ;;
+      3) finish "$engine" incomplete "未完了: 競合で遅れた timeout か test runner の失敗で判定できない mutant が残った(reportRun を見る)" ;;
       *)
         if grep -qF -- "--since の差分を解決できない" "$out/engine.log"; then
           finish "$engine" diff-failed "不成立: engine が比較元 $base からの差分を取得できない"

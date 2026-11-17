@@ -41,7 +41,7 @@ public sealed class MutationTesting(RunMutationTesting workflow, JudgeChangedLin
                     options.ExcludeStatic,
                     options.DetectionMatrix
                 ),
-                withBaseline ? options.FingerprintSettings() : null,
+                options.FingerprintSettings(),
                 options.OutputDirectory,
                 withBaseline
             ),

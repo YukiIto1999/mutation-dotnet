@@ -62,8 +62,10 @@ README の制約事項に加えて、source から確かめられるものを置
   実行全体を包む期限は持たず、外側の期限は SIGTERM などの信号で与える。
   build と変異の生成は取り消しの要求を受けても終えるまで走り、その後で対象は判定に至らなかったものとして止まる。
   所在は `Mutation/verifying/infrastructure/workers/WorkerClient.cs` と `Mutation/verifying/application/workflows/run-mutation-testing/TargetRun.cs` である。
-- worker の異常終了は `Killed`、worker の `Failed` 応答と共有 worker の初期化の失敗は `TimedOut` に分類され、どちらも score の検出に数える。
-  件数だけでは、テストが変異を検出した場合と区別できない。
+- worker process が mutant の実行中に落ちた場合は `Killed`(`(process crash)`)で、score の検出に数える。
+  worker が `Failed` を返した場合、`killed`、`survived`、`hitlimit` 以外の結末の値、共有 worker と隔離 process の初期化の失敗、期限切れでも取り消しでもない応答の欠落は、`Killed` にも `TimedOut` にも `Survived` にも数えず、`UnjudgedCause.RunnerFailure` の未判定(報告の `Pending`、`unjudgedBy.runnerFailure`)にして score の母数に入れない。
+  worker が落ちた原因を、mutant によるものと環境によるもの(たとえば OOM killer)に区別する手段は持たないので、環境の理由で落ちた場合も `Killed` に数える。
+  この区別は実測しておらず、source の読取りから導いた推論である。
   期限切れだけは、競合による遅れと区別して未判定にする。
   対照の実行が予算に収まり、再実行も期限を超えた場合に限って、期限切れを検出に数える。
   競合が一時で、対照の実行が収まった後に再び遅れた場合は、検出と区別できない。
@@ -76,21 +78,53 @@ README の制約事項に加えて、source から確かめられるものを置
 
 - 型付けの事前検査を通った変異でも emit に失敗することがあり、その変異は rollback で無効化されて `CompileError` になる。
   README の「mostly excluded」は、事前検査で減らすことを指し、`CompileError` が発生しない保証ではない。
-- `--with-baseline` の再利用で照合する入力は、全体の再構築と変異ごとの継承で違う。
-  全体の再構築は、csc 引数の文字列、csc が読む全ソースの内容、設定、テスト assembly、変異 assembly を照合する。
-  変異ごとの継承は、そのファイルの内容、変異列、テスト assembly、被覆するテストの集合だけを照合し、設定、他のファイル、参照する assembly の内容を照合しない。
-  所在は `Mutation/mutating/infrastructure/fingerprint/CompilationFingerprint.cs` と `Mutation/verifying/infrastructure/snapshot/SnapshotReuse.cs` である。
-- 参照する assembly、analyzer、generator、`AdditionalFiles`、analyzer config、テストの補助 file の内容は、どちらの経路でも hash しない。
-  path が同じまま内容だけが変わり、テスト assembly の byte が変わらないときに、再検査を強制する仕組みはない。
-  これは source の読取りから導いた推論で、実行で確かめていない。
-- 変異ごとの継承では、あるファイルの変異は、そのファイルと変異列とテスト assembly と被覆するテストの集合が前回と同じなら、同じ対象の別のファイルの変更があっても前回の判定を継承する。
-- 継承した判定は、今回の `CompileError`、`NoCoverage`、`Ignored` の判定を上書きし得る。
-  `--validate-survivors` は、継承した `Survived` を再検証しない。
-  どちらも source の読取りから導いた推論で、実行で確かめていない。
-  所在は `Mutation/verifying/application/workflows/verify-mutants/VerdictMerge.cs` の `Merge` と `VerifyMutants.cs` の `RevalidateSurvivorsAsync` である。
-- 全量の実行の保存は、`--mutate`、`--ignore-operators`、`--ignore-methods` だけが違う実行の間で共有される。
-  これらを切り替えると全体の再構築は起きなくなり、変異ごとの継承は設定を照合しないので、前回の判定を継承し得る。
-  所在は `Mutation/verifying/application/workflows/run-mutation-testing/RunLayout.cs` である。
+- `--with-baseline` の再利用は、入力の閉包の同一性が前回と一致するときだけ許す。
+  全体の再構築は、閉包の同一性に、対象のソースごとの変わった行の範囲と `--since` が選んだ候補の範囲を加えた指紋と、テスト assembly と変異 assembly の hash を照合する。
+  変異ごとの継承は、閉包の同一性、テスト assembly の hash、そのファイルの内容、変異列、被覆するテストの集合を照合する。
+  閉包は、csc 引数、ソース、additional file、embed する file、analyzer config、参照する assembly、analyzer と generator、resource、署名の鍵、test 出力の全 file、engine・worker・compiler の assembly、runtime と OS の版、環境変数、作業 directory、設定である。file は内容、環境変数は名前と値を hash に含める。
+  読めない入力が一つでもあれば同一性を示せないので、何も継承せず、全体の再構築もしない。
+  同一性を持たない前の版の保存は、継承の根拠にしない。
+  所在は `Mutation/mutating/infrastructure/fingerprint/CompilationFingerprint.cs`、`InputClosure.cs` と `Mutation/verifying/infrastructure/snapshot/SnapshotReuse.cs` である。
+- 閉包に入れない入力がある。
+  テスト assembly の directory と csc の引数が指す file の外にある file、network、時刻、SDK の props と targets のうち csc の引数と bin の内容に現れないものである。
+  `--with-baseline` は、これらの外部状態から判定が独立しているテストに限って使う。実行時に必要な file は MSBuild の `CopyToOutputDirectory` などで test 出力に含め、外部状態を読むテストでは `--with-baseline` を付けず毎回判定する。
+  テストの実行体が成果物を書く `TestResults` directory の下は、実行のたびに変わるので閉包に入れない。
+- テスト assembly の directory は、対象の assembly の複製も含めて hash する。
+  deterministic でない compile は、build のたびに内容が変わり、同一性が一致しないので再利用できない。
+  再検査は強制されるので判定は壊れないが、再利用の利点を失う。
+  `tests/e2e/medium/reuse/verify-reuse.sh` の fixture では、同じ入力の再利用と、設定を変えた後の同じ入力の再利用を実行して確かめている。
+- 同一性は、継承を求めない走行も求めて保存する。
+  参照する assembly とテストの directory の hash は、build の後の走行ごとに読むので、大きな directory では時間がかかる。
+  所要時間は測定していない。
+- 設定の要約(`--mutate`、`--ignore-operators`、`--ignore-methods`、`--exclude-static`、`--validate-survivors`、`--since` の基点と `--changed-lines`)は閉包に入る。
+  これらを切り替えた走行は、同じ出力先の保存を継承せず、保存を上書きする。
+  `--validate-survivors` を求めなかった走行の `Survived` を、求めた走行が継承することはない。
+- 今回の `CompileError`、`NoCoverage`、`Ignored` の分類は、継承した判定より常に優先する。
+  継承が届くのは、今回の実行計画に載った変異だけである。
+  所在は `Mutation/verifying/application/workflows/verify-mutants/VerdictMerge.cs` の `Merge` と `VerifyMutants.cs` である。
 - 判定の確定ごとの追記の記録は、`--validate-survivors` の再検証の結果と `--detection-matrix` の行列の行を持たない。
   `--detection-matrix` の実行は継承を使わないので、止まった行列の実行を続きから実行することはできない。
   所在は `Mutation/verifying/infrastructure/snapshot/SnapshotJournal.cs` と `Mutation/composition/operations/MutationTesting.cs` である。
+
+## 変更による選別
+
+- `--since` は、変わったファイルを対象とテストと参照する project の build graph に照らして分類し、対象へ届く変更があれば対象の production の全範囲を候補にする。
+  変えたソースの未変更の呼び出し元と、変えたテストが検出する production は、file より細かく選べないので、これらの関係では全範囲が最小である。
+  `--changed-lines` はこの広げ方を行わず、届く関係を未分析として報告に残す。
+  所在は `Mutation/mutating/domain/services/ChangeImpact.cs` である。
+- project 参照は StructuredLogger の `ProjectReferenceGraph` を使い、MSBuild の評価に記録された `ProjectReference` を推移的に辿る。
+  評価後の target が追加した参照など、graph に現れない関係は project 参照として分類できない。ただし、関係が不明な file の変更を影響なしにはせず、対象全体へ広げる。
+  所在は `Mutation/mutating/infrastructure/msbuild/TargetGraphs.cs` である。
+- 増分 build は、変更のない参照 project の compile を省き、その csc の呼び出しが binlog に残らない。
+  参照先 project の compiler 呼出しが binlog に無いときは、`--no-incremental` で再 build して入力の回収を試みる。
+  なお回収できない project の source は関係不明として全範囲へ広げる。再 build の追加時間は測定していない。
+  所在は `Mutation/mutating/application/usecases/PrepareTarget.cs` の `NeedsRebuild` である。
+- 複数の target framework を build するとき、csc の呼び出しは最後の一回だけを使うので、分類もそのソースの一覧だけを見る。
+  他の framework でだけ compile されるソースも、関係不明なら対象全体を選ぶが、生成する mutant は最後の compilation の範囲に限られる。
+- project の外にある import や fixture は、compiler 入力に直接現れない場合がある。
+  名前や配置で「入力ではない」と推測せず、関係不明の変更を全範囲へ広げる。このため文書だけの変更でも全範囲を分析しうる。
+  `bin` と `obj` の下の file は、既知の compiler 入力なら先にその関係を採り、それ以外の build 成果物だけを除外する。
+- 消えたファイルの変更前の参照は追わず、build 成果物以外の削除は、場所や拡張子によらず全範囲を選ぶ。
+- 候補が空でも、build と baseline のテストは全件実行する。
+- 分類の結果は、報告の `run.selection` と console 要約に残る。
+  `changed-lines` が出力する未分析の記述は、報告の `run.selection[].unanalysed` を読むので、この項を持たない前の版の報告では出力しない。

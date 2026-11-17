@@ -27,7 +27,7 @@ public sealed class JudgeChangedLines(IRecordedReports reports, IChangedLines ch
             return diffFailure;
         }
 
-        var verdicts = ChangedLineVerdicts.Select(report.Mutants, changedLines);
+        var verdicts = ChangedLineVerdicts.Select(report.Mutants, changedLines, report.Unanalysed);
         return verdicts is { Undetected.Count: 0, Unjudged.Count: > 0 }
             ? Result.Failed<PipelineFailure>(new PipelineFailure.UnjudgedOnChangedLines(verdicts.Unjudged.Count))
             : Result.Succeeded(verdicts);

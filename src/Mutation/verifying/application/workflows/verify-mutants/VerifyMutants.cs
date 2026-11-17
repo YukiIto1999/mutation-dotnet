@@ -29,6 +29,11 @@ public sealed class VerifyMutants(IWorkerRuns workerRuns, ISnapshots snapshots)
         );
         var inherited = Inherited(request);
         var plans = schedule.Plans.Where(p => !inherited.ContainsKey(p.MutantId)).ToArray();
+        if (request.WithBaseline)
+        {
+            request.Progress(new RunProgress.VerdictsInherited(schedule.Plans.Count - plans.Length));
+        }
+
         using var journal = snapshots.Begin(Checkpoint(request, schedule, inherited, plans));
         var executed = await workerRuns
             .ExecuteAsync(
@@ -74,6 +79,7 @@ public sealed class VerifyMutants(IWorkerRuns workerRuns, ISnapshots snapshots)
             verdicts,
             request.Baseline,
             request.Fingerprint,
+            request.ClosureIdentity,
             request.Launch.TestAssemblyPath,
             request.MutatedAssemblyPath,
             request.CompileErrorIds,
@@ -81,23 +87,18 @@ public sealed class VerifyMutants(IWorkerRuns workerRuns, ISnapshots snapshots)
         );
 
     /// <summary>前回の保存から継承できる判定の取得。--with-baseline でなければ空</summary>
-    private IReadOnlyDictionary<MutantId, MutantVerdict> Inherited(VerificationRequest request)
-    {
-        if (!request.WithBaseline)
-        {
-            return new Dictionary<MutantId, MutantVerdict>();
-        }
-
-        var inherited = snapshots.Inherit(
-            request.SnapshotPath,
-            request.Mutants,
-            request.Launch.TestAssemblyPath,
-            request.Baseline.Coverage,
-            request.Baseline.Roster
-        );
-        request.Progress(new RunProgress.VerdictsInherited(inherited.Count));
-        return inherited;
-    }
+    /// <remarks>入力の閉包の同一性が前回と一致する保存だけが対象で、今回の無効化、未被覆、除外の分類はこの判定で書き換えない</remarks>
+    private IReadOnlyDictionary<MutantId, MutantVerdict> Inherited(VerificationRequest request) =>
+        request.WithBaseline
+            ? snapshots.Inherit(
+                request.SnapshotPath,
+                request.ClosureIdentity,
+                request.Mutants,
+                request.Launch.TestAssemblyPath,
+                request.Baseline.Coverage,
+                request.Baseline.Roster
+            )
+            : new Dictionary<MutantId, MutantVerdict>();
 
     /// <summary>生存した変異の隔離 process での再検証。--validate-survivors でなければ素通し</summary>
     private async Task<OrchestrationResult> RevalidateSurvivorsAsync(
@@ -146,7 +147,8 @@ public sealed class VerifyMutants(IWorkerRuns workerRuns, ISnapshots snapshots)
 /// <param name="Launch">worker の起動情報</param>
 /// <param name="Execution">実行と判定の制御</param>
 /// <param name="WithBaseline">前回の保存から判定を継承するか</param>
-/// <param name="Fingerprint">変異の生成入力の指紋</param>
+/// <param name="Fingerprint">変異の生成入力の全体の指紋</param>
+/// <param name="ClosureIdentity">判定を決める入力の閉包の同一性。不在なら何も継承せず、保存も継承の根拠を持たない</param>
 /// <param name="MutatedAssemblyPath">変異 assembly の絶対 path</param>
 /// <param name="SnapshotPath">保存 file の絶対 path</param>
 /// <param name="Progress">進行を伝える通知先</param>
@@ -159,6 +161,7 @@ public sealed record VerificationRequest(
     ExecutionSettings Execution,
     bool WithBaseline,
     string? Fingerprint,
+    string? ClosureIdentity,
     string MutatedAssemblyPath,
     string SnapshotPath,
     Action<RunProgress> Progress,

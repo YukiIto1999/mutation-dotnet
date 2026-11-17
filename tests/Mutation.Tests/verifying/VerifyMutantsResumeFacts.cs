@@ -78,12 +78,58 @@ public sealed class VerifyMutantsResumeFacts
         await Assert.That(complete.Verdicts[new MutantId(0)]).IsEqualTo(new MutantVerdict.Survived());
     }
 
+    /// <summary>入力の閉包の同一性が前回と違う、または示せない走行が、前回の判定を継承せず、全ての変異を実行し直すこと</summary>
+    /// <remarks>前回の保存は同じファイルと同じ被覆を持つので、閉包の同一性だけが継承を止める</remarks>
+    /// <param name="closureIdentity">今回の入力の閉包の同一性。入力を読めなかったときは不在</param>
+    /// <returns>走行まで含む非同期検査</returns>
+    [Test]
+    [Arguments("another-closure")]
+    [Arguments(null)]
+    public async Task A_closure_identity_that_differs_or_is_unknown_makes_the_next_run_execute_every_mutant(string? closureIdentity)
+    {
+        using var fixture = new SnapshotFixture();
+        var snapshots = new Snapshots();
+        var first = new ScriptedRuns((plans, _) => Results(plans, new MutantVerdict.Killed("first")));
+        await new VerifyMutants(first, snapshots).ExecuteAsync(Request(fixture, withBaseline: false));
+
+        var second = new ScriptedRuns((plans, _) => Results(plans, new MutantVerdict.Killed("second")));
+        var result = await new VerifyMutants(second, snapshots).ExecuteAsync(Request(fixture, withBaseline: true, closureIdentity));
+
+        await Assert.That(second.Requested.Single()).IsEquivalentTo([0, 1, 2]);
+        await Assert.That(result.Verdicts.Values.All(verdict => verdict is MutantVerdict.Killed { KillerTest: "second" })).IsTrue();
+    }
+
+    /// <summary>止まった走行の保存が、入力の閉包の同一性を持ち、同じ同一性の走行だけが続きを実行できること</summary>
+    [Test]
+    public async Task A_stopped_run_is_continued_only_by_a_run_with_the_same_closure_identity()
+    {
+        using var fixture = new SnapshotFixture();
+        var snapshots = new Snapshots();
+        var dying = new ScriptedRuns((plans, control) =>
+        {
+            control.Settled(plans[0].MutantId, new MutantVerdict.Killed(SnapshotFixture.TestName));
+            throw new InvalidOperationException("worker host died");
+        });
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await new VerifyMutants(dying, snapshots).ExecuteAsync(Request(fixture, withBaseline: false))
+        );
+
+        var other = new ScriptedRuns((plans, _) => Results(plans, new MutantVerdict.Killed("other")));
+        await new VerifyMutants(other, snapshots).ExecuteAsync(Request(fixture, withBaseline: true, "another-closure"));
+
+        await Assert.That(other.Requested.Single()).IsEquivalentTo([0, 1, 2]);
+    }
+
     /// <summary>計画した全件に同じ判定を返す実行結果</summary>
     private static OrchestrationResult Results(IReadOnlyList<MutantPlan> plans, MutantVerdict verdict) =>
         new(plans.ToDictionary(plan => plan.MutantId, _ => verdict), [], 0, new Dictionary<MutantId, DetectionRow>());
 
-    /// <summary>この環境の変異三件の判定確定の入力</summary>
-    private static VerificationRequest Request(SnapshotFixture fixture, bool withBaseline) =>
+    /// <summary>この環境の変異三件の判定確定の入力。入力の閉包の同一性は既定でこの環境の値</summary>
+    private static VerificationRequest Request(
+        SnapshotFixture fixture,
+        bool withBaseline,
+        string? closureIdentity = SnapshotFixture.ClosureIdentity
+    ) =>
         new(
             fixture.Mutants,
             new HashSet<MutantId>(),
@@ -92,6 +138,7 @@ public sealed class VerifyMutantsResumeFacts
             new ExecutionSettings(1, false, false, false),
             withBaseline,
             SnapshotFixture.Fingerprint,
+            closureIdentity,
             fixture.MutatedAssemblyPath,
             fixture.SnapshotPath,
             _ => { },

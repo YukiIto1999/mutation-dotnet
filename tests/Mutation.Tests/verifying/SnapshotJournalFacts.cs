@@ -178,7 +178,7 @@ public sealed class SnapshotJournalFacts
 
     /// <summary>この環境の保存から継承できる判定</summary>
     private static IReadOnlyDictionary<MutantId, MutantVerdict> Inherit(SnapshotFixture fixture, Snapshots snapshots) =>
-        snapshots.Inherit(fixture.SnapshotPath, fixture.Mutants, fixture.TestAssemblyPath, fixture.Coverage, fixture.Roster);
+        snapshots.Inherit(fixture.SnapshotPath, SnapshotFixture.ClosureIdentity, fixture.Mutants, fixture.TestAssemblyPath, fixture.Coverage, fixture.Roster);
 
     /// <summary>file を他の保持と共有せずに開けるか</summary>
     private static bool CanOpenExclusively(string path)

@@ -76,6 +76,46 @@ public sealed class VerifyMutantsFacts
             );
     }
 
+    /// <summary>前回の保存が今回と食い違う判定を持っていても、今回の除外、無効化、未被覆の分類が優先され、継承は実行する変異にだけ届くこと</summary>
+    /// <remarks>連番 0 は static で除外、1 は無効化、2 は被覆されて継承、3 は被覆されない。前回の保存は全件を Killed と記す</remarks>
+    [Test]
+    public async Task Current_classification_takes_precedence_over_a_stale_inherited_verdict()
+    {
+        var excluded = FakePipeline.MutantOf(0) with { InStaticContext = true };
+        var covered = FakePipeline.MutantOf(2);
+        var pipeline = new FakePipeline("Target")
+        {
+            Mutants = [excluded, FakePipeline.MutantOf(1), covered, FakePipeline.MutantOf(3)],
+            CompileErrors = new HashSet<MutantId> { new(1) },
+            Baseline = FakePipeline.ProfileOf([covered]),
+            OnInherit = mutants => mutants.ToDictionary(m => m.Id, _ => (MutantVerdict)new MutantVerdict.Killed("stale")),
+        };
+        var progress = new List<RunProgress>();
+
+        var result = await new VerifyMutants(pipeline, pipeline).ExecuteAsync(
+            BaselineRequest(
+                pipeline,
+                new ExecutionSettings(1, ValidateSurvivors: false, ExcludeStatic: true, DetectionMatrix: false),
+                progress.Add
+            )
+        );
+
+        await Assert.That(result.Verdicts.OrderBy(pair => pair.Key.Value).Select(pair => pair.Value).ToArray())
+            .IsEquivalentTo(
+                new MutantVerdict[]
+                {
+                    new MutantVerdict.Ignored(),
+                    new MutantVerdict.CompileError(),
+                    new MutantVerdict.Killed("stale"),
+                    new MutantVerdict.NoCoverage(),
+                },
+                CollectionOrdering.Matching
+            );
+        await Assert.That(pipeline.Executed.Single()).IsEmpty();
+        await Assert.That(progress.OfType<RunProgress.VerdictsInherited>().Single().Count).IsEqualTo(1);
+    }
+
+
     /// <summary>生存の再検証を求める実行と判定の制御</summary>
     private static ExecutionSettings Validating { get; } = new(1, ValidateSurvivors: true, ExcludeStatic: false, DetectionMatrix: false);
 
@@ -109,9 +149,34 @@ public sealed class VerifyMutantsFacts
             execution,
             WithBaseline: false,
             Fingerprint: null,
+            ClosureIdentity: null,
             MutatedAssemblyPath: "/mutated/Target.dll",
             SnapshotPath: "/work/snapshot.json",
             _ => { },
+            CancellationToken.None
+        );
+
+    /// <summary>前回の保存から継承を求める判定確定の入力の、入力の閉包の同一性</summary>
+    private const string BaselineClosure = "closure-x";
+
+    /// <summary>この環境の変異の判定確定の入力。前回の保存から継承を求める</summary>
+    private static VerificationRequest BaselineRequest(
+        FakePipeline pipeline,
+        ExecutionSettings execution,
+        Action<RunProgress> progress
+    ) =>
+        new(
+            pipeline.Mutants,
+            pipeline.CompileErrors,
+            pipeline.Baseline,
+            new WorkerLaunchPlan("worker.dll", "tests.dll", "/mutated", "Target", "/results"),
+            execution,
+            WithBaseline: true,
+            Fingerprint: null,
+            ClosureIdentity: BaselineClosure,
+            MutatedAssemblyPath: "/mutated/Target.dll",
+            SnapshotPath: "/work/snapshot.json",
+            progress,
             CancellationToken.None
         );
 }

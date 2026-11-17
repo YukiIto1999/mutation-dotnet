@@ -9,16 +9,13 @@ namespace Mutation.Mutating.Infrastructure.Msbuild;
 /// <summary>binlog からの変異対象とテスト assembly の特定</summary>
 public static class TargetLocation
 {
-    /// <summary>対象 project の csc 呼び出しとテスト assembly の実行時 path の特定</summary>
+    /// <summary>対象 project の csc 呼び出しとテスト assembly の実行時 path と、build が示す project の入力の特定</summary>
     /// <param name="binlogPath">読み取る binlog の path</param>
     /// <param name="projects">対象とテストの project の特定</param>
-    /// <returns>成功なら対象の csc 呼び出しとテスト assembly の path の対</returns>
-    public static Result<(CscInvocation Sut, string TestAssembly), PipelineFailure> Locate(
-        string binlogPath,
-        TargetProjects projects
-    )
+    /// <returns>成功なら対象の csc 呼び出しとテスト assembly の path と、対象とテストと参照する project の入力</returns>
+    public static Result<LocatedTarget, PipelineFailure> Locate(string binlogPath, TargetProjects projects)
     {
-        var invocations = BinlogCompilations.Read(binlogPath);
+        var (invocations, references) = BinlogCompilations.Read(binlogPath);
         if (!invocations.TryGetValue(Path.GetFullPath(projects.ProjectPath), out var sut))
         {
             return Result.Failed<PipelineFailure>(new PipelineFailure.CompilerArgumentsNotFound(projects.ProjectPath));
@@ -37,7 +34,7 @@ public static class TargetLocation
             return Result.Failed<PipelineFailure>(new PipelineFailure.NoTestsFound(testAssembly));
         }
 
-        return Result.Succeeded<(CscInvocation Sut, string TestAssembly)>((sut, testAssembly));
+        return Result.Succeeded(new LocatedTarget(sut, testAssembly, TargetGraphs.Build(sut, test, invocations.Values, references)));
     }
 
     /// <summary>obj 配下の出力 path から実行時の bin 配下の path への写像</summary>

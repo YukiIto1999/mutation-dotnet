@@ -6,7 +6,11 @@ namespace Mutation.Verifying.Application;
 /// <summary>即時確定、継承、実行の判定を一つの対応に合流させる規則</summary>
 internal static class VerdictMerge
 {
-    /// <summary>後段が前段を上書きする、即時確定・継承・実行の判定の合流</summary>
+    /// <summary>今回の分類を最優先にし、継承は今回の分類のない変異だけに、実行の判定は最後に置く合流</summary>
+    /// <remarks>
+    /// 今回の無効化、未被覆、除外は今回の入力に対する分類なので、前回の判定で書き換えない
+    /// 実行する変異は継承した変異を含まないので、実行の判定が継承を上書きすることはない
+    /// </remarks>
     /// <param name="compileErrorIds">rollback で無効化された変異の連番</param>
     /// <param name="schedule">実行計画の算出で即時確定した変異</param>
     /// <param name="inherited">前回の保存から継承した判定</param>
@@ -37,7 +41,7 @@ internal static class VerdictMerge
 
         foreach (var (id, verdict) in inherited)
         {
-            verdicts[id] = verdict;
+            verdicts.TryAdd(id, verdict);
         }
 
         foreach (var (id, verdict) in executed)

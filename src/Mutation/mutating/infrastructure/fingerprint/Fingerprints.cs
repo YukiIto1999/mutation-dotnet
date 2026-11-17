@@ -8,6 +8,11 @@ namespace Mutation.Mutating.Infrastructure;
 public sealed class Fingerprints : IFingerprints
 {
     /// <inheritdoc />
-    public string? Compute(CscInvocation invocation, string settings, ChangedLines? changes) =>
-        CompilationFingerprint.Compute(invocation, settings, changes);
+    public ReuseIdentity? Compute(
+        CscInvocation invocation,
+        string testAssemblyPath,
+        string settings,
+        ChangedLines? changes,
+        string selection
+    ) => CompilationFingerprint.Compute(invocation, testAssemblyPath, settings, changes, selection);
 }

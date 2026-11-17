@@ -9,7 +9,11 @@ namespace Mutation.Mutating.Infrastructure.Git;
 public static class ChangedFiles
 {
     /// <summary>基点と作業木の差分と未追跡ファイルの、変わったファイルと行としての取得</summary>
-    /// <remarks>未追跡ファイルは全行が変わったものとする。移動したファイルは削除と追加とみなし、移動先の全行が変わったものとする。git のどの command が失敗しても失敗を返す</remarks>
+    /// <remarks>
+    /// 未追跡ファイルは全行が変わったものとする。移動したファイルは削除と追加とみなし、移動先の全行が変わったものとする
+    /// 消えたファイルと、行の差分を持たない binary のファイルも、変わったファイルとして空の範囲で含め、消えたファイルは <see cref="ChangedLines.Deleted"/> にも載せる
+    /// git のどの command が失敗しても失敗を返す
+    /// </remarks>
     /// <param name="projectDirectory">git repo の中にある directory</param>
     /// <param name="sinceRef">差分の基点になる git の参照</param>
     /// <returns>成功なら変わったファイルと行、失敗なら理由</returns>
@@ -42,24 +46,57 @@ public static class ChangedFiles
             return diffFailure;
         }
 
-        var untracked = Run(projectDirectory, ["ls-files", "-z", "--others", "--exclude-standard", "--full-name"]);
+        var names = Run(
+            projectDirectory,
+            [
+                "diff", "--name-only", "-z", "--no-color", "--no-ext-diff", "--no-textconv", "--no-relative", "--no-renames",
+                baseOutput.Trim(), "--",
+            ]
+        );
+        if (names.IsFailed(out var namesFailure, out var namesOutput))
+        {
+            return namesFailure;
+        }
+
+        var untracked = Run(root, ["ls-files", "-z", "--others", "--exclude-standard", "--full-name"]);
         if (untracked.IsFailed(out var untrackedFailure, out var untrackedOutput))
         {
             return untrackedFailure;
         }
 
-        var diffLines = diffOutput.Split('\n');
-        var untrackedFiles = untrackedOutput.Split('\0', StringSplitOptions.RemoveEmptyEntries);
+        var ranges = WithUntracked(root, diffOutput, untrackedOutput);
+
+        var deleted = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var name in namesOutput.Split('\0', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var path = Path.GetFullPath(Path.Combine(root, name));
+            ranges.TryAdd(path, []);
+            if (!File.Exists(path))
+            {
+                deleted.Add(path);
+            }
+        }
+
+        return Result.Succeeded(new ChangedLines(ranges, deleted));
+    }
+
+    /// <summary>追跡済み差分への未追跡ファイルの全行範囲の追加</summary>
+    /// <param name="root">repository の絶対 path</param>
+    /// <param name="diff">追跡済みファイルの unified diff</param>
+    /// <param name="untracked">NUL 区切りの未追跡ファイルの相対 path</param>
+    /// <returns>ファイルごとの変更行範囲</returns>
+    private static Dictionary<string, IReadOnlyList<LineRange>> WithUntracked(string root, string diff, string untracked)
+    {
         var ranges = new Dictionary<string, IReadOnlyList<LineRange>>(
-            UnifiedDiff.Parse(root, diffLines),
+            UnifiedDiff.Parse(root, diff.Split('\n')),
             StringComparer.Ordinal
         );
-        foreach (var file in untrackedFiles)
+        foreach (var file in untracked.Split('\0', StringSplitOptions.RemoveEmptyEntries))
         {
             ranges[Path.GetFullPath(Path.Combine(root, file))] = [LineRange.WholeFile];
         }
 
-        return Result.Succeeded(new ChangedLines(ranges));
+        return ranges;
     }
 
     /// <summary>git の一 command の実行と標準出力の取得</summary>

@@ -51,8 +51,8 @@ public sealed class IsolationRuns(
     {
         var (order, budget) = plan.Execution.IsolatedSlice;
         var attempt = await AttemptAsync(NoMutant, order, budget, allFailures: true, cancellation).ConfigureAwait(false);
-        var finished = attempt?.Exchange?.Response is WorkerResponse.RunCompleted;
-        return new ControlRun(finished ? attempt!.RunMs : null, attempt?.TotalMs ?? 0);
+        var finished = attempt?.Exchange.Response is WorkerResponse.RunCompleted;
+        return new ControlRun(finished ? attempt!.RunMs : null, attempt?.TotalMs ?? 0, ControlFailure(attempt));
     }
 
     /// <inheritdoc />
@@ -105,22 +105,35 @@ public sealed class IsolationRuns(
         var init = await client.SendAsync(WorkerRequests.Init(launch), TimeSpan.FromMinutes(2), cancellation).ConfigureAwait(false);
         if (init.Response is not WorkerResponse.Opened)
         {
-            return new Attempt(null, false, total.Elapsed.TotalMilliseconds, 0);
+            return new Attempt(init, false, total.Elapsed.TotalMilliseconds, 0, VerdictInterpretation.InitFailure(init));
         }
 
         var request = new WorkerRequest.Run(activeId, order.Select(roster.Id).ToArray(), AllFailures: allFailures);
         var run = Stopwatch.StartNew();
         var exchange = await client.SendAsync(request, deadlines.For(budgetMs), cancellation).ConfigureAwait(false);
-        return new Attempt(exchange, client.HasExited, total.Elapsed.TotalMilliseconds, run.Elapsed.TotalMilliseconds);
+        return new Attempt(exchange, client.HasExited, total.Elapsed.TotalMilliseconds, run.Elapsed.TotalMilliseconds, null);
     }
+
+    /// <summary>対照の実行の観測から、変異の判定と無関係な runner の失敗の取り出し。競合による遅れとは区別する</summary>
+    private static UnjudgedCause.RunnerFailure? ControlFailure(Attempt? attempt) =>
+        attempt switch
+        {
+            null => null,
+            { InitFailure: { } initFailure } => initFailure,
+            _ when VerdictInterpretation.Settle(attempt.Exchange, attempt.WorkerExited)
+                is MutantVerdict.Unjudged { Cause: UnjudgedCause.RunnerFailure failure } => failure,
+            _ => null,
+        };
 
     /// <summary>一巡の結果からの確定結果と実行の記録</summary>
     private IsolationOutcome Outcome(Attempt attempt, IReadOnlyList<TestIndex> order)
     {
-        if (attempt.Exchange is not { } exchange)
+        if (attempt.InitFailure is { } initFailure)
         {
-            return new IsolationOutcome(new MutantVerdict.Killed("(initialization failure)"), 0, attempt.TotalMs, Row(order, null));
+            return new IsolationOutcome(new MutantVerdict.Unjudged(initFailure), 0, attempt.TotalMs, Row(order, null));
         }
+
+        var exchange = attempt.Exchange;
 
         var executed = exchange.Response is WorkerResponse.RunCompleted completed ? completed.ExecutedTests ?? order.Count : 0;
         return new IsolationOutcome(
@@ -137,11 +150,18 @@ public sealed class IsolationRuns(
         detectionMatrix ? DetectionRows.From(order, roster, response) : null;
 
     /// <summary>新規 worker での一巡の観測</summary>
-    /// <param name="Exchange">run の応答。worker を開けなかったときは不在</param>
+    /// <param name="Exchange">run の応答。worker を開けなかったときは init の応答</param>
     /// <param name="WorkerExited">応答を得た後に worker が終了していたか</param>
     /// <param name="TotalMs">起動から応答までの所要時間</param>
     /// <param name="RunMs">run 指示を送ってから応答までの所要時間</param>
-    private sealed record Attempt(WorkerExchange? Exchange, bool WorkerExited, double TotalMs, double RunMs);
+    /// <param name="InitFailure">worker を開けなかったときの理由。開けたなら不在</param>
+    private sealed record Attempt(
+        WorkerExchange Exchange,
+        bool WorkerExited,
+        double TotalMs,
+        double RunMs,
+        UnjudgedCause.RunnerFailure? InitFailure
+    );
 }
 
 /// <summary>隔離実行一件の確定結果と実行の記録</summary>
@@ -161,4 +181,5 @@ public sealed record IsolationOutcome(
 /// <summary>変異のない対照の実行の観測</summary>
 /// <param name="CompletedMs">run の所要時間。応答を得なかったときは不在</param>
 /// <param name="ElapsedMs">起動から終わりまでの所要時間</param>
-public sealed record ControlRun(double? CompletedMs, double ElapsedMs);
+/// <param name="Failure">worker を開けなかったか失敗を返した理由。競合による遅れではなく runner の失敗なら存在</param>
+public sealed record ControlRun(double? CompletedMs, double ElapsedMs, UnjudgedCause.RunnerFailure? Failure = null);

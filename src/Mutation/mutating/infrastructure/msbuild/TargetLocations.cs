@@ -9,8 +9,6 @@ namespace Mutation.Mutating.Infrastructure.Msbuild;
 public sealed class TargetLocations : ILocateTargets
 {
     /// <inheritdoc />
-    public Result<(CscInvocation Sut, string TestAssembly), PipelineFailure> Locate(
-        string binlogPath,
-        TargetProjects projects
-    ) => TargetLocation.Locate(binlogPath, projects);
+    public Result<LocatedTarget, PipelineFailure> Locate(string binlogPath, TargetProjects projects) =>
+        TargetLocation.Locate(binlogPath, projects);
 }

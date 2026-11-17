@@ -114,6 +114,38 @@ public sealed class JudgeChangedLinesFacts
         await Assert.That(verdicts!.OnChangedLines.Select(m => m.Id).ToArray()).IsEquivalentTo(["T:1"]);
     }
 
+    /// <summary>報告が未分析として残した影響の関係が、合格の判定にも添えられ、判定が影響する範囲を含まないことを示せること</summary>
+    [Test]
+    public async Task Unanalysed_scope_recorded_by_the_report_accompanies_the_verdicts()
+    {
+        var judge = new JudgeChangedLines(
+            new FakeReports(
+                Result.Succeeded(
+                    new RecordedReport(
+                        "/repo",
+                        [new RecordedMutant("T:1", Path.GetFullPath("/repo/A.cs"), new SourceSpan(10, 1, 10, 2), "M", "r", new MutantVerdict.Killed("Calc.Add"))],
+                        ["Target: test-changed 1 件"]
+                    )
+                )
+            ),
+            new FakeChangedLines(
+                Result.Succeeded(
+                    new ChangedLines(
+                        new Dictionary<string, IReadOnlyList<LineRange>>(StringComparer.Ordinal)
+                        {
+                            [Path.GetFullPath("/repo/A.cs")] = [new LineRange(10, 10)],
+                        }
+                    )
+                )
+            )
+        );
+
+        var outcome = judge.Execute("report.json", "base-ref");
+
+        await Assert.That(outcome.IsFailed(out _, out var verdicts)).IsFalse();
+        await Assert.That(verdicts!.Unanalysed.ToArray()).IsEquivalentTo(["Target: test-changed 1 件"]);
+    }
+
     /// <summary>10 行目だけが変わった差分と、指定の変異を持つ報告からの判定の組み立て</summary>
     private static JudgeChangedLines JudgeWith(params RecordedMutant[] mutants) =>
         new(

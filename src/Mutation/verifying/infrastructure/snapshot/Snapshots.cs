@@ -28,11 +28,20 @@ public sealed class Snapshots : ISnapshots
     /// <inheritdoc />
     public IReadOnlyDictionary<MutantId, MutantVerdict> Inherit(
         string snapshotPath,
+        string? closureIdentity,
         IReadOnlyList<Mutant> mutants,
         string testAssemblyPath,
         CoverageMap coverage,
         TestRoster roster
-    ) => SnapshotReuse.Inheritable(SnapshotStore.Load(snapshotPath), mutants, testAssemblyPath, coverage, roster);
+    ) =>
+        SnapshotReuse.Inheritable(
+            SnapshotStore.Load(snapshotPath),
+            closureIdentity,
+            mutants,
+            testAssemblyPath,
+            coverage,
+            roster
+        );
 
     /// <inheritdoc />
     public IVerdictJournal Begin(SnapshotSaveRequest checkpoint) => new SnapshotJournal(checkpoint);

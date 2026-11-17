@@ -17,6 +17,9 @@ internal sealed class SnapshotFixture : IDisposable
     /// <summary>生成入力の指紋として保存に添える値</summary>
     public const string Fingerprint = "fingerprint";
 
+    /// <summary>入力の閉包の同一性として保存に添える値</summary>
+    public const string ClosureIdentity = "closure";
+
     /// <summary>変異三件を持つ環境の作成</summary>
     public SnapshotFixture()
     {
@@ -74,6 +77,7 @@ internal sealed class SnapshotFixture : IDisposable
             verdicts.ToDictionary(pair => new MutantId(pair.Id), pair => pair.Verdict),
             Baseline,
             Fingerprint,
+            ClosureIdentity,
             TestAssemblyPath,
             MutatedAssemblyPath,
             new HashSet<MutantId>(),

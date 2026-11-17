@@ -21,8 +21,9 @@ public interface ISnapshots
         string targetName
     );
 
-    /// <summary>前回の保存から継承できる判定の取得</summary>
+    /// <summary>前回の保存から継承できる判定の取得。入力の閉包の同一性が前回と一致するときだけ継承する</summary>
     /// <param name="snapshotPath">保存 file の絶対 path</param>
+    /// <param name="closureIdentity">今回の入力の閉包の同一性。不在なら一致を示せないので何も継承しない</param>
     /// <param name="mutants">今回の全変異</param>
     /// <param name="testAssemblyPath">今回のテスト assembly の絶対 path</param>
     /// <param name="coverage">今回の被覆表</param>
@@ -30,6 +31,7 @@ public interface ISnapshots
     /// <returns>変異の連番から継承する判定への対応</returns>
     IReadOnlyDictionary<MutantId, MutantVerdict> Inherit(
         string snapshotPath,
+        string? closureIdentity,
         IReadOnlyList<Mutant> mutants,
         string testAssemblyPath,
         CoverageMap coverage,
@@ -46,7 +48,8 @@ public interface ISnapshots
 /// <param name="Mutants">全変異</param>
 /// <param name="Verdicts">変異の連番から確定結果への対応</param>
 /// <param name="Baseline">基準実行の観測</param>
-/// <param name="Fingerprint">変異の生成入力の指紋</param>
+/// <param name="Fingerprint">変異の生成入力の全体の指紋。不在なら全体の再構築の根拠にしない</param>
+/// <param name="ClosureIdentity">判定を決める入力の閉包の同一性。不在なら変異ごとの継承の根拠にしない</param>
 /// <param name="TestAssemblyPath">テスト assembly の絶対 path</param>
 /// <param name="MutatedAssemblyPath">変異 assembly の絶対 path</param>
 /// <param name="CompileErrorIds">rollback で無効化された変異の連番</param>
@@ -56,6 +59,7 @@ public sealed record SnapshotSaveRequest(
     IReadOnlyDictionary<MutantId, MutantVerdict> Verdicts,
     BaselineProfile Baseline,
     string? Fingerprint,
+    string? ClosureIdentity,
     string TestAssemblyPath,
     string MutatedAssemblyPath,
     IReadOnlySet<MutantId> CompileErrorIds,

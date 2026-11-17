@@ -97,10 +97,15 @@ public sealed partial class TestingOrchestrator : IDisposable
         WorkerClient? client = null;
         while (!cancellation.IsCancellationRequested && shared.TryDequeue(out var plan))
         {
-            client ??= await StartSharedAsync(cancellation).ConfigureAwait(false);
+            UnjudgedCause.RunnerFailure? startFailure = null;
             if (client is null)
             {
-                RecordStartFailure(plan, tally, cancellation);
+                (client, startFailure) = await StartSharedAsync(cancellation).ConfigureAwait(false);
+            }
+
+            if (client is null)
+            {
+                RecordStartFailure(plan, startFailure!, tally, cancellation);
                 continue;
             }
 
@@ -115,22 +120,29 @@ public sealed partial class TestingOrchestrator : IDisposable
     }
 
     /// <summary>共有ホストの初期化と継続利用の可否の判定</summary>
-    /// <returns>初期化済みの worker または初期化失敗時の不在</returns>
-    private async Task<WorkerClient?> StartSharedAsync(CancellationToken cancellation)
+    /// <returns>初期化済みの worker。初期化に失敗したときは不在と、その失敗の理由</returns>
+    private async Task<(WorkerClient? Client, UnjudgedCause.RunnerFailure? Failure)> StartSharedAsync(
+        CancellationToken cancellation
+    )
     {
         var client = WorkerClient.Start(launch.WorkerDllPath, launch.ResultsDirectory);
         var init = await client.SendAsync(WorkerRequests.Init(launch), TimeSpan.FromMinutes(2), cancellation).ConfigureAwait(false);
         if (init.Response is not WorkerResponse.Opened)
         {
             client.Dispose();
-            return null;
+            return (null, VerdictInterpretation.InitFailure(init));
         }
 
-        return client;
+        return (client, null);
     }
 
-    /// <summary>共有ホストを開けなかった計画の記録。取り消しで開けなかったときは結果を採らない</summary>
-    private void RecordStartFailure(MutantPlan plan, RunTally tally, CancellationToken cancellation)
+    /// <summary>共有ホストを開けなかった計画の記録。変異は検出に数えず、判定を確かめられなかった未判定にする。取り消しで開けなかったときは結果を採らない</summary>
+    private void RecordStartFailure(
+        MutantPlan plan,
+        UnjudgedCause.RunnerFailure failure,
+        RunTally tally,
+        CancellationToken cancellation
+    )
     {
         if (cancellation.IsCancellationRequested)
         {
@@ -138,7 +150,7 @@ public sealed partial class TestingOrchestrator : IDisposable
             return;
         }
 
-        tally.Record(plan, new MutantVerdict.TimedOut(), 0, 0, isolated: false, Row(plan.Execution.ResidentSlice.TestOrder, null));
+        tally.Record(plan, new MutantVerdict.Unjudged(failure), 0, 0, isolated: false, Row(plan.Execution.ResidentSlice.TestOrder, null));
     }
 
     /// <summary>共有実行後の worker の継続可否の決定</summary>
