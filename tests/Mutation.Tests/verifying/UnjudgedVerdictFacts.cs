@@ -73,6 +73,21 @@ public sealed class UnjudgedVerdictFacts
         await Assert.That(result.State).IsEqualTo("interrupted");
     }
 
+    /// <summary>複数の対象のうち一つだけが実行に至らなかった変異を持っても 走行を途中にすること</summary>
+    [Test]
+    public async Task One_target_with_mutants_that_never_ran_makes_a_multi_target_run_interrupted()
+    {
+        var result = new MutationRunResult(
+            [
+                new TargetOutcome.Completed(Target(new MutantVerdict.Killed("t"))),
+                new TargetOutcome.Completed(Target(new MutantVerdict.Killed("t"), UnjudgedOfEveryCause[0])),
+            ],
+            Timings
+        );
+
+        await Assert.That(result.State).IsEqualTo("interrupted");
+    }
+
     /// <summary>連番順の判定を持つ対象一件の確定結果</summary>
     private static TargetResult Target(params MutantVerdict[] verdicts) =>
         new(

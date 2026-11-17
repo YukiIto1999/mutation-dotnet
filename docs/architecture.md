@@ -179,7 +179,7 @@ baseline は worker を止めて失敗として返し、`TargetRun` が `Interru
 build と変異の生成は要求を受けても終えるまで走り、その後の段階の前で止まる。
 終了コードは `RunCommand.cs` が決め、取り消しで止まった走行は信号に対応する 129(SIGHUP)、130(SIGINT)、143(SIGTERM)である。
 SIGKILL は受け取れないので、止まった走行の判定は追記の記録(継承の節)だけが残す。
-振る舞いは `tests/Mutation.Tests/verifying/TestingOrchestratorCancellationFacts.cs` と `BaselineExecutionFacts.cs` が固定し、信号を受けた走行全体は `tests/e2e/medium/interruption/verify-interruption.sh` が固定する。
+振る舞いは `tests/Mutation.Tests/verifying/TestingOrchestratorCancellationFacts.cs`、`RunMutationTestingCancellationFacts.cs`、`BaselineExecutionFacts.cs` が固定し、信号を受けた走行全体は `tests/e2e/medium/interruption/verify-interruption.sh` が固定する。
 
 ## 継承
 
