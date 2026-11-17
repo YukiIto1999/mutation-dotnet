@@ -38,6 +38,18 @@ public sealed class SnapshotStoreFacts
         await Assert.That(await text.ReadToEndAsync()).IsEqualTo(earlier);
     }
 
+    /// <summary>判定を確定できなかった変異を持つ保存が 生成入力の指紋も変異 assembly の hash も持たないこと</summary>
+    [Test]
+    public async Task A_save_with_an_unjudged_mutant_carries_neither_the_fingerprint_nor_the_assembly_hash()
+    {
+        using var fixture = new SnapshotFixture();
+
+        var document = DescribeAll(fixture, SnapshotFixture.Pending);
+
+        await Assert.That(document.CompilationFingerprint).IsNull();
+        await Assert.That(document.MutatedAssemblyHash).IsNull();
+    }
+
     /// <summary>全変異が同じ判定の保存の内容</summary>
     private static SnapshotDocument DescribeAll(SnapshotFixture fixture, MutantVerdict verdict) =>
         SnapshotStore.Describe(
