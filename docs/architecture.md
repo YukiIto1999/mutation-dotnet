@@ -215,7 +215,7 @@ SIGKILL は受け取れないので、止まった走行の判定は追記の記
 `Pending` が残る保存は、生成入力の指紋と変異 assembly の hash を持たないので、全体の再構築に一致しない。
 `Pending` が前回の結果として再利用されることはなく、確定した判定だけが変異ごとの継承で次の実行に残り、残りの変異だけが実行される。
 `--detection-matrix` の実行は継承を使わないので、この記録から続きを実行することはできない。
-振る舞いは `tests/Mutation.Tests/verifying/SnapshotJournalFacts.cs` と `VerifyMutantsResumeFacts.cs` が固定する。
+振る舞いは `tests/Mutation.Tests/verifying/SnapshotJournalFacts.cs`、`SnapshotStoreFacts.cs`、`VerifyMutantsResumeFacts.cs` が固定する。
 
 ## 出力の配置
 

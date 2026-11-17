@@ -113,9 +113,86 @@ public sealed class SnapshotJournalFacts
         await Assert.That(lines[0]).StartsWith("{\"begin\":");
     }
 
+    /// <summary>記録を置き換えても、前の記録を開いていた読み手には前の記録がそのまま読めること</summary>
+    [Test]
+    public async Task Begin_leaves_a_reader_of_the_earlier_journal_with_the_whole_earlier_content()
+    {
+        using var fixture = new SnapshotFixture();
+        Directory.CreateDirectory(Path.GetDirectoryName(fixture.JournalPath)!);
+        const string earlier = "stale\nlines\n";
+        await File.WriteAllTextAsync(fixture.JournalPath, earlier);
+        using var reader = new FileStream(fixture.JournalPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+
+        using var journal = new Snapshots().Begin(fixture.Request((0, SnapshotFixture.Pending), (1, SnapshotFixture.Pending), (2, SnapshotFixture.Pending)));
+
+        using var text = new StreamReader(reader);
+        await Assert.That(await text.ReadToEndAsync()).IsEqualTo(earlier);
+    }
+
+    /// <summary>記録を閉じると、記録の file を他が排他で開けるようになること</summary>
+    [Test]
+    public async Task Disposing_the_journal_releases_its_file()
+    {
+        using var fixture = new SnapshotFixture();
+        var journal = new Snapshots().Begin(fixture.Request((0, SnapshotFixture.Pending), (1, SnapshotFixture.Pending), (2, SnapshotFixture.Pending)));
+        var openableWhileLive = CanOpenExclusively(fixture.JournalPath);
+
+        journal.Dispose();
+
+        await Assert.That(openableWhileLive).IsFalse();
+        await Assert.That(CanOpenExclusively(fixture.JournalPath)).IsTrue();
+    }
+
+    /// <summary>ファイル内の変異の数を超える順番を指す行を、読めない行と同じく捨てること</summary>
+    [Test]
+    public async Task An_entry_pointing_past_the_last_mutant_of_its_file_is_ignored()
+    {
+        using var fixture = new SnapshotFixture();
+        var snapshots = new Snapshots();
+        var journal = snapshots.Begin(fixture.Request((0, SnapshotFixture.Pending), (1, SnapshotFixture.Pending), (2, SnapshotFixture.Pending)));
+        journal.Append(new MutantId(0), new MutantVerdict.Survived());
+        journal.Dispose();
+        await File.AppendAllTextAsync(
+            fixture.JournalPath,
+            "{\"file\":\"" + fixture.SourcePath + "\",\"index\":" + fixture.Mutants.Count + ",\"status\":\"Killed\",\"killedBy\":\"x\"}\n"
+        );
+
+        var inherited = Inherit(fixture, snapshots);
+
+        await Assert.That(inherited.Keys.Select(id => id.Value).ToArray()).IsEquivalentTo([0]);
+    }
+
+    /// <summary>変異 assembly が既に無い走行でも、全件の判定を保存し、次の走行が継承できること</summary>
+    [Test]
+    public async Task A_completed_run_is_saved_for_inheritance_even_when_its_mutated_assembly_is_gone()
+    {
+        using var fixture = new SnapshotFixture();
+        var snapshots = new Snapshots();
+        File.Delete(fixture.MutatedAssemblyPath);
+        using var journal = snapshots.Begin(fixture.Request((0, SnapshotFixture.Pending), (1, SnapshotFixture.Pending), (2, SnapshotFixture.Pending)));
+
+        journal.Commit(fixture.Request((0, new MutantVerdict.Killed("a")), (1, new MutantVerdict.Survived()), (2, new MutantVerdict.TimedOut())));
+
+        await Assert.That(Inherit(fixture, snapshots).Keys.Select(id => id.Value).Order().ToArray()).IsEquivalentTo([0, 1, 2]);
+    }
+
     /// <summary>この環境の保存から継承できる判定</summary>
     private static IReadOnlyDictionary<MutantId, MutantVerdict> Inherit(SnapshotFixture fixture, Snapshots snapshots) =>
         snapshots.Inherit(fixture.SnapshotPath, fixture.Mutants, fixture.TestAssemblyPath, fixture.Coverage, fixture.Roster);
+
+    /// <summary>file を他の保持と共有せずに開けるか</summary>
+    private static bool CanOpenExclusively(string path)
+    {
+        try
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None);
+            return true;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+    }
 
     /// <summary>追記の記録の行数</summary>
     private static int LineCount(SnapshotFixture fixture) => File.ReadAllLines(fixture.JournalPath).Length;
