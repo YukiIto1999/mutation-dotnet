@@ -110,7 +110,7 @@ xunit v2 と VSTest adapter は一回の実行の中でテストごとの失敗�
 判定は共有側の検出のままである。
 検出行列は前回の判定から得られないため、この指定は `--with-baseline` の継承と再利用を止める。
 所在は `composition/operations/MutationTesting.cs` である。
-振る舞いは `tests/Mutation.Tests/verifying/TestingOrchestratorFacts.cs`、`DetectionRowsFacts.cs`、`tests/e2e/medium/detection-matrix/verify-detection-matrix.sh` が固定する。
+振る舞いは `tests/Mutation.Tests/verifying/TestingOrchestratorFacts.cs`、`DetectionRowsFacts.cs`、`MutationTestingBaselineFacts.cs`、`tests/e2e/medium/detection-matrix/verify-detection-matrix.sh` が固定する。
 
 baseline は変異を全て不活性にした assembly でテストを一度実行する。
 テストごとに、結果、所要時間、被覆した変異、probe の呼び出し回数を集め、`verifying/infrastructure/workers/BaselineMapping.cs` が `BaselineProfile` へ写す。
