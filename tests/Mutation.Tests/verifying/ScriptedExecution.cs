@@ -21,6 +21,9 @@ internal sealed record WorkerCall(
     bool AllFailures
 )
 {
+    /// <summary>worker を開く init の指示の種類名</summary>
+    public const string InitRequest = "init";
+
     /// <summary>run の指示の種類名</summary>
     public const string RunRequest = "run";
 
@@ -29,6 +32,9 @@ internal sealed record WorkerCall(
 
     /// <summary>baseline の指示の種類名</summary>
     public const string BaselineRequest = "baseline";
+
+    /// <summary>worker を終える exit の指示の種類名</summary>
+    public const string ShutdownRequest = "exit";
 
     /// <summary>共有の worker で受けた実行形の名前</summary>
     public const string SharedMode = "shared";

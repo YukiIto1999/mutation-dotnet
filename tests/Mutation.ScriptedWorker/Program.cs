@@ -18,6 +18,12 @@ while (await reader.ReadLineAsync() is { } line)
     var request = JsonSerializer.Deserialize<WorkerRequest>(line, serializer);
     var response = await behavior.AnswerAsync(request);
     await writer.WriteLineAsync(JsonSerializer.Serialize(response, serializer));
+    foreach (var output in behavior.TakeLateOutput())
+    {
+        await Task.Delay(ScriptedBehavior.LateOutputGapMs);
+        await Console.Out.WriteLineAsync(output);
+    }
+
     await Console.Out.WriteLineAsync($"{WorkerContract.OutputSentinel} {sequence}");
     if (request is WorkerRequest.Shutdown)
     {

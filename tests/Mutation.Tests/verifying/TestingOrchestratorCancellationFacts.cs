@@ -2,6 +2,7 @@ using Mutation.Protocol;
 using Mutation.Shared;
 using Mutation.Verifying.Domain;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using TUnit.Core;
 
 namespace Mutation.Tests;
@@ -15,6 +16,9 @@ public sealed class TestingOrchestratorCancellationFacts
 
     /// <summary>台本 worker の即時応答に対する実行時間予算</summary>
     private const double BudgetMs = 30_000;
+
+    /// <summary>worker が run を受けてから 応答を読み終えたと見なして取り消すまでの待ち。出力の待ちより十分に短い</summary>
+    private static readonly TimeSpan AnswerSettle = TimeSpan.FromMilliseconds(200);
 
     /// <summary>二件のテストの名簿</summary>
     private static readonly TestRoster Roster = new([AddTest, "Calc.Sub"], [10, 10]);
@@ -89,6 +93,38 @@ public sealed class TestingOrchestratorCancellationFacts
         await Assert.That(execution.Verdict(1)).IsEqualTo(new MutantVerdict.Unjudged(new UnjudgedCause.NotRun()));
         await Assert.That(execution.Verdict(2)).IsEqualTo(new MutantVerdict.Unjudged(new UnjudgedCause.NotRun()));
         await Assert.That(execution.Calls).IsEmpty();
+    }
+
+    /// <summary>応答を読んだ後の出力の回収の間に取り消すと、その応答を採らず、worker を止めることの検査</summary>
+    /// <remarks>worker は応答を書いた後で、完了の目印の前に出力を書くので、応答を読み終えた後の待ちの間に取り消しが届く</remarks>
+    /// <returns>worker の終了まで含む非同期検査</returns>
+    [Test]
+    public async Task A_cancellation_while_the_answer_is_being_collected_discards_it_and_stops_the_worker()
+    {
+        using var run = ScriptedWorkerRun.WithLateOutput(
+            new Dictionary<string, string[]> { [ScriptedWorkerRun.SharedKey(1)] = ["written after the answer"] },
+            ScriptedWorkerRun.SharedAnswer(1, Killed())
+        );
+        Stopwatch? sinceReceived = null;
+
+        var execution = await run.ExecuteCancellingAsync(
+            Roster,
+            calls =>
+            {
+                if (!calls.Any(call => call.Request == WorkerCall.RunRequest))
+                {
+                    return false;
+                }
+
+                sinceReceived ??= Stopwatch.StartNew();
+                return sinceReceived.Elapsed >= AnswerSettle;
+            },
+            (_, _) => { },
+            Resident(1, 0)
+        );
+
+        await Assert.That(execution.Verdict(1)).IsEqualTo(new MutantVerdict.Unjudged(new UnjudgedCause.Interrupted()));
+        await Assert.That(execution.SurvivingProcesses).IsEmpty();
     }
 
     /// <summary>共有 worker で実行する計画の組み立て</summary>

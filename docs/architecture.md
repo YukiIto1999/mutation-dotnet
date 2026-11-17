@@ -80,6 +80,8 @@ rollback で無効化した変異は `CompileError` として報告され、判�
 worker の起動と指示の送信は `verifying/infrastructure/workers/WorkerClient.cs` にある。
 CLI と worker は匿名パイプで一行の JSON を交わし、指示は `protocol/WorkerRequest.cs` が定める `init`、`discover`、`baseline`、`run`、`exit` の閉じた直和である。
 worker が一指示を終えたことは、実 stdout に刻む `WorkerContract.OutputSentinel` で CLI へ伝える。
+`WorkerClient` は応答を読んだ後も目印を待ち、その指示の処理中に worker が書いた出力を応答に添える。
+この回収は `tests/Mutation.Tests/verifying/TestingOrchestratorOutputFacts.cs` が固定する。
 `protocol/` は CLI 側の `Mutation` と worker の両方が使う契約で、worker は `src/Mutation.Worker/Mutation.Worker.csproj` の `Compile Include` で source を共有する。
 
 worker はテスト assembly の基盤を `src/Mutation.Worker/hosts/HostSelection.cs` で判別し、`ITestHost` の実装を選ぶ。
@@ -110,7 +112,7 @@ xunit v2 と VSTest adapter は一回の実行の中でテストごとの失敗�
 判定は共有側の検出のままである。
 検出行列は前回の判定から得られないため、この指定は `--with-baseline` の継承と再利用を止める。
 所在は `composition/operations/MutationTesting.cs` である。
-振る舞いは `tests/Mutation.Tests/verifying/TestingOrchestratorFacts.cs`、`DetectionRowsFacts.cs`、`tests/e2e/medium/detection-matrix/verify-detection-matrix.sh` が固定する。
+振る舞いは `tests/Mutation.Tests/verifying/TestingOrchestratorFacts.cs`、`TestingOrchestratorRowFacts.cs`、`DetectionRowsFacts.cs`、`MutationTestingBaselineFacts.cs`、`tests/e2e/medium/detection-matrix/verify-detection-matrix.sh` が固定する。
 
 baseline は変異を全て不活性にした assembly でテストを一度実行する。
 テストごとに、結果、所要時間、被覆した変異、probe の呼び出し回数を集め、`verifying/infrastructure/workers/BaselineMapping.cs` が `BaselineProfile` へ写す。
@@ -118,6 +120,7 @@ baseline の被覆収集は、テスト数と `--concurrency` に応じて最大
 `BaselineExecution.cs` が分担し、テストが一件も見つからなければ `PipelineFailure.NoTestsFound` で対象を中断する。
 baseline で失敗したテストは以後の選択から除外する。
 複数 worker の観測の集計と不正な発見応答の拒否は、`tests/Mutation.Tests/verifying/BaselineExecutionFacts.cs` が実 process の worker を使って固定する。
+同じ検査が、テストを発見した worker が最初の分担を受け持つことと、分担を終えた worker へ終了の指示を送ることも固定する。
 
 `verifying/domain/services/MutantScheduler.cs` が、被覆から変異ごとの実行計画を算出する。
 被覆するテストが無い変異は実行せず `NoCoverage` にする。
@@ -132,7 +135,7 @@ static 初期化の文脈にある変異と、テスト境界の外か static �
 `--exclude-static` を指定すると、構文上 static の文脈にある変異と、テスト境界の外か static 初期化の区間で hit した変異を、通常の被覆テストがあっても `Ignored` にして score の母数から外す。
 `--validate-survivors` を指定すると、今回の実行で `Survived` になった隔離でない変異を、`VerifyMutants.cs` が新規 process で再検証して結果を重ねる。
 前回から継承した `Survived` は、再検証の対象に入らない。
-振る舞いは `tests/Mutation.Tests/verifying/MutantSchedulerFacts.cs` が固定する。
+振る舞いは `tests/Mutation.Tests/verifying/MutantSchedulerFacts.cs` と `VerifyMutantsFacts.cs` が固定する。
 
 共有 worker が活性の変異の枝へ一度も到達しなかったことを `RunCompleted.Reached == false` で報告した場合、`TestingOrchestrator.cs` は生存・検出のどちらも新規 process で再判定する。
 この条件で検出を返した共有 worker は破棄し、次の共有実行の直前に新しい worker を起動する。
@@ -163,6 +166,7 @@ Microsoft.Testing.Platform の run は killer test の名前を返さないた�
 Stryker.NET、StrykerJS、PIT は倍率と定数の固定の期限で超過をそのまま timeout とし、忙しい機への手当ては定数を人が大きくすることだけなので、この確かめ直しは持たない。
 費用は、期限を超えた変異ごとの新規 process 二本と再実行一回である。
 振る舞いは `tests/Mutation.Tests/verifying/TestingOrchestratorTimeoutFacts.cs` と `TimeoutJudgementFacts.cs` が固定する。
+競合で判定できなかった変異の所要時間には、対照の実行に費やした時間が入る。
 
 ## 取り消し
 
@@ -179,7 +183,7 @@ baseline は worker を止めて失敗として返し、`TargetRun` が `Interru
 build と変異の生成は要求を受けても終えるまで走り、その後の段階の前で止まる。
 終了コードは `RunCommand.cs` が決め、取り消しで止まった走行は信号に対応する 129(SIGHUP)、130(SIGINT)、143(SIGTERM)である。
 SIGKILL は受け取れないので、止まった走行の判定は追記の記録(継承の節)だけが残す。
-振る舞いは `tests/Mutation.Tests/verifying/TestingOrchestratorCancellationFacts.cs` と `BaselineExecutionFacts.cs` が固定し、信号を受けた走行全体は `tests/e2e/medium/interruption/verify-interruption.sh` が固定する。
+振る舞いは `tests/Mutation.Tests/verifying/TestingOrchestratorCancellationFacts.cs`、`TestingOrchestratorStartFailureFacts.cs`、`RunMutationTestingCancellationFacts.cs`、`BaselineExecutionFacts.cs` が固定し、信号を受けた走行全体は `tests/e2e/medium/interruption/verify-interruption.sh` が固定する。
 
 ## 継承
 
@@ -202,6 +206,7 @@ SIGKILL は受け取れないので、止まった走行の判定は追記の記
 判定の合成は、今回の `CompileError`、`NoCoverage`、`Ignored` を先に置き、継承した判定、実行した判定の順に上書きする。
 所在は `verifying/application/workflows/verify-mutants/VerdictMerge.cs` の `Merge` である。
 この上書きの順序が今回の分類に与える影響は、実行で確かめていない。
+即時に確定した判定が、実行した判定と並んで合成の結果に残ることは、`tests/Mutation.Tests/verifying/VerifyMutantsFacts.cs` が固定する。
 `tests/Mutation.Tests/verifying/SnapshotReuseFacts.cs` と `SnapshotReconstructionFacts.cs` は、上の局所的な条件を固定するもので、依存の閉包の健全性までは保証しない。
 
 判定の確定ごとに、`SnapshotJournal.cs` が保存に並べた `work/<対象名>/snapshot.verdicts.jsonl` へ一行ずつ追記する。
@@ -214,7 +219,7 @@ SIGKILL は受け取れないので、止まった走行の判定は追記の記
 `Pending` が残る保存は、生成入力の指紋と変異 assembly の hash を持たないので、全体の再構築に一致しない。
 `Pending` が前回の結果として再利用されることはなく、確定した判定だけが変異ごとの継承で次の実行に残り、残りの変異だけが実行される。
 `--detection-matrix` の実行は継承を使わないので、この記録から続きを実行することはできない。
-振る舞いは `tests/Mutation.Tests/verifying/SnapshotJournalFacts.cs` と `VerifyMutantsResumeFacts.cs` が固定する。
+振る舞いは `tests/Mutation.Tests/verifying/SnapshotJournalFacts.cs`、`SnapshotStoreFacts.cs`、`VerifyMutantsResumeFacts.cs` が固定する。
 
 ## 出力の配置
 
@@ -244,6 +249,7 @@ SIGKILL は受け取れないので、止まった走行の判定は追記の記
 形式は `tests/Mutation.Tests/verifying/StrykerReportFacts.cs` が固定する。
 `reports/timings.json` は `TimingsReport.cs` が書き出し、`phases`、`counters`、`targets`、`mutants` を持つ。
 `phases` は build、mutate、compile、baseline、testing、total の段階別時間、`counters` は変異数、テスト数、score、worker の再起動回数、判定別件数、`targets` は対象別の内訳と中断、`mutants` は変異別の所要時間である。
+変異別の記録が持つ実行数、所要時間、隔離の実行だったかは、`tests/Mutation.Tests/verifying/TestingOrchestratorTimingFacts.cs` が固定する。
 `mutation-report.json` と `timings.json` は、走行が全変異の判定を確定したかを `RunStateReport.cs` が組み立てる `run` に書く。
 `state` は `MutationRunResult.State` で、全件が確定していれば `completed`、取り消しで止まっていれば `interrupted`、競合で判定できなかった変異が残れば `unjudged` である。
 判定を確定できなかった変異は `MutantVerdict.Unjudged` で表し、報告の status は `Pending`、`statusReason` に理由を書く。
@@ -292,7 +298,7 @@ engine の `Result` と閉じた直和は、隣接 checkout の typemodeling-dot
 | 場所 | 内容 |
 |---|---|
 | `tests/Mutation.Tests/` | ユニットテストと構造検査 |
-| `tests/Mutation.ScriptedWorker/` | 台本どおりに応える worker。共有 worker と隔離 process の応答を決め、応答の前に待たせることも、応えないこともできる。`TestingOrchestratorFacts.cs` と `TestingOrchestratorCancellationFacts.cs` が使う |
+| `tests/Mutation.ScriptedWorker/` | 台本どおりに応える worker。共有 worker と隔離 process の応答を決め、応答の前に待たせることも、応えないことも、init に失敗することも、応答の後に出力を書くこともできる。`TestingOrchestrator` の各検査と `BaselineExecutionFacts.cs` が使う |
 | `tests/e2e/medium/` | 判定カテゴリ、三つのテスト基盤、変更行の判定、検出行列、SIGTERM と SIGKILL で止めた走行を実 process で検証する fixture と script |
 | `tests/performance/` | 合成対象と実 project への測定 script |
 

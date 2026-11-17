@@ -18,6 +18,9 @@ public sealed class BaselineExecutionFacts
     /// <summary>並行に走らせる worker 数</summary>
     private const int Concurrency = 2;
 
+    /// <summary>worker を一本だけ走らせる設定</summary>
+    private const int SingleLane = 1;
+
     /// <summary>テストごとに固有に被覆される変異の連番の起点</summary>
     private const int OwnMutantBase = 100;
 
@@ -178,6 +181,41 @@ public sealed class BaselineExecutionFacts
         await Assert.That(execution.Outcome.IsFailed(out _, out _)).IsTrue();
         await Assert.That(execution.BaselineRuns()).IsEmpty();
         await Assert.That(execution.SurvivingProcesses).IsEmpty();
+    }
+
+    /// <summary>被覆の収集を終えた worker のそれぞれへ、終了の指示を最後に送ることの検査</summary>
+    /// <returns>worker の終了まで含む非同期検査</returns>
+    [Test]
+    public async Task Every_worker_that_collected_a_shard_is_asked_to_exit_last()
+    {
+        using var run = new ScriptedWorkerRun(
+            [
+                ScriptedWorkerRun.DiscoverAnswer(new WorkerResponse.Discovered(AllIds())),
+                .. BaselineScript(Enumerable.Range(0, TestCount)),
+            ]
+        );
+
+        var execution = await run.BaselineAsync(Concurrency);
+
+        var lastRequests = execution.Calls.GroupBy(call => call.Pid).Select(group => group.Last().Request).ToArray();
+        await Assert.That(lastRequests).IsEquivalentTo([WorkerCall.ShutdownRequest, WorkerCall.ShutdownRequest]);
+    }
+
+    /// <summary>worker が一本のとき、テストを発見した worker が被覆の収集も担い、別の worker を起こさないことの検査</summary>
+    /// <returns>worker の終了まで含む非同期検査</returns>
+    [Test]
+    public async Task With_one_lane_the_worker_that_discovered_the_tests_collects_the_baseline_too()
+    {
+        using var run = new ScriptedWorkerRun(
+            [
+                ScriptedWorkerRun.DiscoverAnswer(new WorkerResponse.Discovered(AllIds())),
+                .. BaselineScript(Enumerable.Range(0, TestCount)),
+            ]
+        );
+
+        var execution = await run.BaselineAsync(SingleLane);
+
+        await Assert.That(execution.Calls.Select(call => call.Pid).Distinct().Count()).IsEqualTo(1);
     }
 
     /// <summary>連番順と辞書順が一致するテスト識別子の組み立て</summary>
