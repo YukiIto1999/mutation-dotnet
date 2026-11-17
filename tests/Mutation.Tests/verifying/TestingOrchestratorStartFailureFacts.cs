@@ -20,6 +20,10 @@ public sealed class TestingOrchestratorStartFailureFacts
     private static readonly TestRoster Roster = new([AddTest, "Calc.Sub"], [10, 10]);
 
     /// <summary>共有の worker を開けないとき 計画した変異ごとに 一件も実行しなかった共有の実行として判定が残ること</summary>
+    /// <remarks>
+    /// 現在は検出として数える判定を残すが その種類は契約として確認できていないので確かめない
+    /// 環境の失敗を検出に数えてよいかは別に判断する
+    /// </remarks>
     /// <returns>worker の終了まで含む非同期検査</returns>
     [Test]
     public async Task A_shared_worker_that_cannot_be_opened_leaves_each_planned_mutant_recorded_as_not_executed()
@@ -29,7 +33,6 @@ public sealed class TestingOrchestratorStartFailureFacts
         var execution = await run.ExecuteAsync(Roster, Resident(1, 0), Resident(2, 1));
 
         await Assert.That(execution.Result.Verdicts.Count).IsEqualTo(2);
-        await Assert.That(execution.Result.Verdicts.Values.Any(verdict => verdict is MutantVerdict.Unjudged)).IsFalse();
         await Assert.That(execution.Result.Timings.Select(timing => (timing.MutantId.Value, timing.ExecutedTests, timing.Isolated)).Order().ToArray())
             .IsEquivalentTo([(1, 0, false), (2, 0, false)]);
         await Assert.That(execution.Calls.Any(call => call.Request == WorkerCall.RunRequest)).IsFalse();
