@@ -1,5 +1,4 @@
-using Mutation.Shared;
-using Mutation.Verifying.Domain;
+using Mutation.Domain;
 using System.Globalization;
 using System.Text;
 
@@ -86,7 +85,7 @@ public static class ConsoleSummary
         selection.Scope switch
         {
             SelectionScope.NoImpact =>
-                $"no-impact: 対象の入力に届く変更がなく、候補は空(対象の入力でない変更 {selection.NotInputs.Count} 件)",
+                "no-impact: 変更がなく、候補は空",
             SelectionScope.FullProduction =>
                 $"full-production: {Relations(selection.Reasons)} が対象へ届き、届く先を file より細かく選べないため、対象の全範囲を候補にした",
             SelectionScope.ExplicitSubset =>

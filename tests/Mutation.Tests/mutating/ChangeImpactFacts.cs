@@ -1,5 +1,4 @@
-using Mutation.Mutating.Domain;
-using Mutation.Shared;
+using Mutation.Domain;
 using TUnit.Core;
 
 namespace Mutation.Tests;
@@ -84,17 +83,21 @@ public sealed class ChangeImpactFacts
         await Assert.That(Relations(assessment.Selection.Reasons)).IsEquivalentTo(["dependency-changed"]);
     }
 
-    /// <summary>消えたファイルは、project の外であっても入力との関係を否定できないため全範囲を候補にすること</summary>
+    /// <summary>消えたファイルを、project の外や bin と obj の中であっても影響なしにしないこと</summary>
+    /// <param name="path">消えたファイルの絶対 path</param>
+    /// <returns>対象全体を選ぶことの検査</returns>
     [Test]
-    public async Task A_removed_file_selects_the_whole_production_scope()
+    [Arguments("/repo/src/Target/Gone.cs")]
+    [Arguments("/repo/src/Shared/Linked.cs")]
+    [Arguments("/repo/docs/old.md")]
+    [Arguments("/repo/src/Target/bin/runtime.json")]
+    [Arguments("/repo/tests/Target.Tests/obj/runtime.json")]
+    public async Task A_removed_file_selects_the_whole_production_scope(string path)
     {
-        var inProject = ChangeImpact.Select(ChangedWithDeleted([], Path.Combine(TargetDirectory, "Gone.cs")), Graph, changedLinesOnly: false);
-        var sourceOutside = ChangeImpact.Select(ChangedWithDeleted([], Path.GetFullPath("/repo/src/Shared/Linked.cs")), Graph, changedLinesOnly: false);
-        var documentOutside = ChangeImpact.Select(ChangedWithDeleted([], Path.GetFullPath("/repo/docs/old.md")), Graph, changedLinesOnly: false);
+        var assessment = ChangeImpact.Select(ChangedWithDeleted([], Path.GetFullPath(path)), Graph, changedLinesOnly: false);
 
-        await Assert.That(Relations(inProject.Selection.Reasons)).IsEquivalentTo(["file-removed"]);
-        await Assert.That(Relations(sourceOutside.Selection.Reasons)).IsEquivalentTo(["file-removed"]);
-        await Assert.That(Relations(documentOutside.Selection.Reasons)).IsEquivalentTo(["file-removed"]);
+        await Assert.That(assessment.Selection.Scope is SelectionScope.FullProduction).IsTrue();
+        await Assert.That(Relations(assessment.Selection.Reasons)).IsEquivalentTo(["file-removed"]);
     }
 
     /// <summary>compiler 入力との関係が不明な変更を、project の内外や拡張子だけで影響なしにしないこと</summary>
@@ -107,28 +110,16 @@ public sealed class ChangeImpactFacts
     [Arguments("/repo/src/Other/Unrelated.cs")]
     [Arguments("/repo/src/Other/Other.csproj")]
     [Arguments("/repo/src/Target/Excluded.cs")]
+    [Arguments("/repo/src/Target/obj/Debug/Target.AssemblyInfo.cs")]
+    [Arguments("/repo/src/Target/bin/Debug/Target.dll")]
+    [Arguments("/repo/tests/Target.Tests/bin/runtime.json")]
+    [Arguments("/repo/tests/Target.Tests/obj/runtime.json")]
     public async Task A_change_outside_the_known_compiler_inputs_selects_the_whole_production_scope(string path)
     {
         var assessment = ChangeImpact.Select(Changed(Path.GetFullPath(path)), Graph, changedLinesOnly: false);
 
         await Assert.That(assessment.Selection.Scope is SelectionScope.FullProduction).IsTrue();
         await Assert.That(Relations(assessment.Selection.Reasons)).IsEquivalentTo(["unknown-input"]);
-    }
-
-    /// <summary>対象の入力でない変更だけなら、影響なしで候補が空になり、変更した file を対象の入力でないものとして残すこと</summary>
-    /// <param name="path">変えたファイルの絶対 path</param>
-    /// <returns>検査の完了</returns>
-    [Test]
-    [Arguments("/repo/src/Target/obj/Debug/Target.AssemblyInfo.cs")]
-    [Arguments("/repo/src/Target/bin/Debug/Target.dll")]
-    public async Task A_change_that_is_not_an_input_of_the_target_selects_nothing_and_is_recorded(string path)
-    {
-        var assessment = ChangeImpact.Select(Changed(Path.GetFullPath(path)), Graph, changedLinesOnly: false);
-
-        await Assert.That(assessment.Selection.Scope is SelectionScope.NoImpact).IsTrue();
-        await Assert.That(assessment.Files).IsEmpty();
-        await Assert.That(assessment.Selection.Reasons).IsEmpty();
-        await Assert.That(assessment.Selection.NotInputs.ToArray()).IsEquivalentTo([Path.GetFullPath(path)]);
     }
 
     /// <summary>明示した変更行の部分集合が、変えたソースだけを候補にし、広げずに、テストなどの届く関係を未分析として残すこと</summary>
@@ -162,7 +153,7 @@ public sealed class ChangeImpactFacts
     [Test]
     public async Task Nothing_reaching_the_target_is_no_impact_under_the_explicit_subset_too()
     {
-        var assessment = ChangeImpact.Select(Changed(Path.Combine(TargetDirectory, "obj", "unused.bin")), Graph, changedLinesOnly: true);
+        var assessment = ChangeImpact.Select(Changed(), Graph, changedLinesOnly: true);
 
         await Assert.That(assessment.Selection.Scope is SelectionScope.NoImpact).IsTrue();
         await Assert.That(assessment.Selection.Unanalysed).IsEmpty();
@@ -175,7 +166,7 @@ public sealed class ChangeImpactFacts
         var full = ChangeImpact.Select(Changed(Path.Combine(TargetDirectory, "A.cs")), Graph, changedLinesOnly: false);
         var subsetA = ChangeImpact.Select(Changed(Path.Combine(TargetDirectory, "A.cs")), Graph, changedLinesOnly: true);
         var subsetB = ChangeImpact.Select(Changed(Path.Combine(TargetDirectory, "B.cs")), Graph, changedLinesOnly: true);
-        var none = ChangeImpact.Select(Changed(Path.Combine(TargetDirectory, "obj", "unused.bin")), Graph, changedLinesOnly: false);
+        var none = ChangeImpact.Select(Changed(), Graph, changedLinesOnly: false);
 
         await Assert.That(new[] { full.Key, subsetA.Key, subsetB.Key, none.Key }.Distinct().Count()).IsEqualTo(4);
     }

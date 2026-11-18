@@ -1,6 +1,5 @@
-using Mutation.Shared;
-using Mutation.Verifying.Domain;
-using Mutation.Verifying.Infrastructure.Snapshot;
+using Mutation.Domain;
+using Mutation.Infrastructure.Snapshot;
 using System.Text.Json.Nodes;
 using TUnit.Core;
 
@@ -62,6 +61,30 @@ public sealed class SnapshotStoreFacts
         await Assert.That(document.ClosureIdentity).IsEqualTo(SnapshotFixture.ClosureIdentity);
     }
 
+    /// <summary>判定が全て確定した保存が、再利用の同一性の全体の指紋と閉包の同一性の両方を持つこと</summary>
+    [Test]
+    public async Task A_save_of_settled_verdicts_carries_both_keys_of_the_identity()
+    {
+        using var fixture = new SnapshotFixture();
+
+        var document = DescribeAll(fixture, new MutantVerdict.Killed("t"));
+
+        await Assert.That(document.CompilationFingerprint).IsEqualTo(SnapshotFixture.Fingerprint);
+        await Assert.That(document.ClosureIdentity).IsEqualTo(SnapshotFixture.ClosureIdentity);
+    }
+
+    /// <summary>再利用の同一性を持たない走行の保存が、どちらの鍵も持たず、根拠にならないこと</summary>
+    [Test]
+    public async Task A_save_without_an_identity_carries_neither_key()
+    {
+        using var fixture = new SnapshotFixture();
+
+        var document = DescribeAll(fixture, new MutantVerdict.Killed("t"), identity: null);
+
+        await Assert.That(document.CompilationFingerprint).IsNull();
+        await Assert.That(document.ClosureIdentity).IsNull();
+    }
+
     /// <summary>入力の閉包の同一性の項を持たない前の版の保存が、読めて、継承の根拠にならないこと</summary>
     [Test]
     public async Task A_save_written_before_closure_identities_loads_without_one_and_inherits_nothing()
@@ -75,7 +98,7 @@ public sealed class SnapshotStoreFacts
         var loaded = SnapshotStore.Load(fixture.SnapshotPath);
         var inherited = new Snapshots().Inherit(
             fixture.SnapshotPath,
-            SnapshotFixture.ClosureIdentity,
+            SnapshotFixture.Identity,
             fixture.Mutants,
             fixture.TestAssemblyPath,
             fixture.Coverage,
@@ -87,8 +110,12 @@ public sealed class SnapshotStoreFacts
         await Assert.That(inherited).IsEmpty();
     }
 
-    /// <summary>全変異が同じ判定の保存の内容</summary>
+    /// <summary>全変異が同じ判定の保存の内容。再利用の同一性はこの環境の対</summary>
     private static SnapshotDocument DescribeAll(SnapshotFixture fixture, MutantVerdict verdict) =>
+        DescribeAll(fixture, verdict, SnapshotFixture.Identity);
+
+    /// <summary>全変異が同じ判定で、指定の再利用の同一性を添えた保存の内容</summary>
+    private static SnapshotDocument DescribeAll(SnapshotFixture fixture, MutantVerdict verdict, ReuseIdentity? identity) =>
         SnapshotStore.Describe(
             fixture.Mutants,
             fixture.Mutants.ToDictionary(mutant => mutant.Id, _ => verdict),
@@ -96,8 +123,7 @@ public sealed class SnapshotStoreFacts
             fixture.Coverage,
             new SnapshotContext(
                 fixture.TestAssemblyPath,
-                SnapshotFixture.Fingerprint,
-                SnapshotFixture.ClosureIdentity,
+                identity,
                 fixture.MutatedAssemblyPath,
                 new HashSet<MutantId>(),
                 fixture.Roster

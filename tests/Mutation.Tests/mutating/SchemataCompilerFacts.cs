@@ -1,8 +1,7 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
-using Mutation.Mutating.Domain;
-using Mutation.Mutating.Infrastructure.Roslyn;
-using Mutation.Shared;
+using Mutation.Domain;
+using Mutation.Infrastructure.Roslyn;
 using TUnit.Core;
 
 namespace Mutation.Tests;

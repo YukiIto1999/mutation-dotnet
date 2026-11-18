@@ -10,48 +10,53 @@ source を変える変更と同じ変更で、対応する節を直し、対応�
 
 一回の `run` は、build、対象ごとの継承の照合、変異の生成、baseline、判定、報告の順に進む。
 入口は `src/Mutation.Cli/commands/RunCommand.cs` の `Run` で、`--project` と `--test-project` を位置で対にして対象の列を作り、`composition/BuildCore.cs` が組み立てた operation を呼ぶ。
-流れ全体の所有者は `verifying/application/workflows/run-mutation-testing/RunMutationTesting.cs` であり、対象一件の遂行は同じ directory の `TargetRun.cs` にある。
+流れ全体の所有者は `application/usecases/run-mutation-testing/RunMutationTesting.cs` であり、対象一件の遂行は同じ directory の `TargetRun.cs` にある。
 
 build は全対象をまとめて一度行い、csc の呼び出しが binlog に残らなかった対象だけを再 build する。
-`mutating/infrastructure/msbuild/BuildExecution.cs` が `dotnet build -bl` を実行し、対象が複数のときは全テスト project を並べた `build-targets.slnx` を作業 directory へ書いて入口にする。
+`infrastructure/msbuild/BuildExecution.cs` が `dotnet build -bl` を実行し、対象が複数のときは全テスト project を並べた `build-targets.slnx` を作業 directory へ書いて入口にする。
 再 build の要否は `PrepareTarget.cs` が判定し、再 build には `--no-incremental` を付ける。
-対象の csc 引数とテスト assembly の実行時 path は、`mutating/infrastructure/msbuild/TargetLocation.cs` が binlog から取り出す。
+対象の csc 引数とテスト assembly の実行時 path は、`infrastructure/msbuild/TargetLocation.cs` が binlog から取り出す。
 同じ project の csc 呼び出しが binlog に複数あるときは、最後の一回だけを採る。
-所在は `mutating/infrastructure/msbuild/BinlogCompilations.cs` の `Read` である。
+所在は `infrastructure/msbuild/BinlogCompilations.cs` の `Read` である。
 
 対象は順に処理し、対象の間は並列にしない。
 対象一件の準備や検査が失敗しても、その対象を `TargetOutcome.Failed` として記録して残りの対象を続け、終了コードは 1 になる。
+全対象の build が失敗した場合も、`RunMutationTesting.Record` が前回の報告を失敗した走行の報告で置き換え、元の型付き失敗を返す。
+取り消しが要求済みなら、build の失敗より中断を優先する。
 build そのものの失敗だけは全対象に及ぶ失敗として、実行全体を止める。
 報告は全対象を通して一つ書き、終了コードの決定は `RunCommand.cs` の `ExitCodeAsync` にある。
 
 ## 変異の生成
 
 対象のコンパイルは csc の引数から Roslyn で再構築し、対象が使う source generator も再実行して生成コードを含める。
-所在は `mutating/infrastructure/roslyn/TargetCompilationLoader.cs` と `GeneratorExecution.cs` で、振る舞いは `tests/Mutation.Tests/mutating/GeneratorExecutionFacts.cs` が固定する。
+所在は `infrastructure/roslyn/TargetCompilationLoader.cs` と `GeneratorExecution.cs` で、振る舞いは `tests/Mutation.Tests/mutating/GeneratorExecutionFacts.cs` が固定する。
 
 候補は構文木を走査して集め、各演算子の構文条件と semantic model による検査で選別する。
 `CandidateCollector.cs` が走査し、`MutationContexts.cs` の禁則と各演算子の条件が採否を決め、`MutationNumbering.cs` が文書順に連番を振る。
 一部の演算子は `SpeculativeBinding.cs` で置換後の型付けを確認するが、全演算子が全ての置換先を事前に型検査する保証ではない。
-どこを変異させるかは、ファイルの glob、演算子名、呼び出し名、変更行の選別を `mutating/domain/aggregates/policy/MutationPolicy.cs` が一手に決める。
+どこを変異させるかは、ファイルの glob、演算子名、呼び出し名、変更行の選別を `domain/aggregates/policy/MutationPolicy.cs` が一手に決める。
 振る舞いは `tests/Mutation.Tests/mutating/SemanticFilterFacts.cs` と `MutationPolicyFacts.cs` が固定する。
 
 `--since` の実行では、変異させるファイルの集合を、変わったファイルが対象の入力へ届く関係から選ぶ。
-`GenerateMutants.Assess` が `mutating/domain/services/ChangeImpact.cs` を呼び、その結果の集合を `MutationPolicy` へ渡す。
-関係の判定に使う入力は、`mutating/infrastructure/msbuild/TargetGraphs.cs` が MSBuild の評価と compiler 呼出しから作る。
-project 参照の解釈は StructuredLogger の `ProjectReferenceGraph` に委ね、対象とテストから推移的に辿った project の compiler 入力を集める。assembly 名や出力 directory では参照関係を推測しない。
+`GenerateMutants.Assess` が `domain/services/ChangeImpact.cs` を呼び、その結果の集合を `MutationPolicy` へ渡す。
+関係の判定に使う入力は、`infrastructure/msbuild/TargetGraphs.cs` が MSBuild の評価と compiler 呼出しから作る。
+project 参照の解釈は StructuredLogger の `ProjectReferenceGraph` に委ね、対象とテストから推移的に辿った project の compiler 入力を集める。
+assembly 名や出力 directory では参照関係を推測しない。
 増分 build で参照先の compiler 呼出しが省かれた場合、`PrepareTarget.cs` が `--no-incremental` の再 build で補う。
-変更は、production、テスト、参照先、build 入力、削除、関係不明に分類する。compiler 入力に現れないことだけでは影響なしにせず、関係不明なら全範囲へ広げる。既知の入力でない build 成果物だけを除外する。
+変更は、production、テスト、参照先、build 入力、削除、関係不明に分類する。
+compiler 入力に現れないことだけでは影響なしにせず、関係不明なら全範囲へ広げる。
+`bin` と `obj` という directory 名を、入力ではない根拠にしない。
 届く関係が一つもなければ `no-impact` で候補は空である。
 届く関係があれば、変えたソースの未変更の呼び出し元と、変えたテストが検出する production を file より細かく選べないので、対象の全範囲(`full-production`)を候補にし、呼び出し元を `callers-of-changed-production` として理由に加える。
 `--changed-lines` は広げず、変えたソースだけを候補にする明示した部分集合(`changed-lines`)にし、ほかの関係を `unanalysed` として残す。
-消えたファイルと、行の差分を持たない binary のファイルは、`mutating/infrastructure/git/ChangedFiles.cs` が `git diff --name-only` から拾い、`ChangedLines.Deleted` に載せる。
+消えたファイルと、行の差分を持たない binary のファイルは、`infrastructure/git/ChangedFiles.cs` が `git diff --name-only` から拾い、`ChangedLines.Deleted` に載せる。
 選択は `CandidateSelection` として `PreparedTarget`、`TargetResult` を通り、`RunStateReport.cs` が報告の `run.selection` に書く。
 選択を見分ける鍵(`ImpactAssessment.Key`)は、全体の再構築の指紋に含める。
 振る舞いは `tests/Mutation.Tests/mutating/ChangeImpactFacts.cs`、`tests/Mutation.Tests/root/ChangedLinesRunFacts.cs` と `ChangedLinesDeletionFacts.cs`、`tests/e2e/medium/impact/verify-impact.sh` が固定する。
 
 既定の演算子は `CandidateCollector.DefaultOperators` が列挙する 13 種で、各演算子は `IMutationOperator` を実装する。
 `--ignore-operators` は `IMutationOperator.Name`、既定では型名と突き合わせる。
-演算子の実装は `mutating/infrastructure/roslyn/operators/` にある。
+演算子の実装は `infrastructure/roslyn/operators/` にある。
 
 | 演算子 | 変異の内容 |
 |---|---|
@@ -91,12 +96,12 @@ rollback で無効化した変異は `CompileError` として報告され、判�
 
 変異を織り込んだ assembly は `mutated/<対象名>/` に書き出す。
 テストは常駐する worker process が実行し、隔離が要る変異を除いて、mutant ごとに process を起動しない。
-worker の起動と指示の送信は `verifying/infrastructure/workers/WorkerClient.cs` にある。
-CLI と worker は匿名パイプで一行の JSON を交わし、指示は `protocol/WorkerRequest.cs` が定める `init`、`discover`、`baseline`、`run`、`exit` の閉じた直和である。
+worker の起動と指示の送信は `infrastructure/workers/WorkerClient.cs` にある。
+CLI と worker は匿名パイプで一行の JSON を交わし、指示は `infrastructure/workers/protocol/WorkerRequest.cs` が定める `init`、`discover`、`baseline`、`run`、`exit` の閉じた直和である。
 worker が一指示を終えたことは、実 stdout に刻む `WorkerContract.OutputSentinel` で CLI へ伝える。
 `WorkerClient` は応答を読んだ後も目印を待ち、その指示の処理中に worker が書いた出力を応答に添える。
 この回収は `tests/Mutation.Tests/verifying/TestingOrchestratorOutputFacts.cs` が固定する。
-`protocol/` は CLI 側の `Mutation` と worker の両方が使う契約で、worker は `src/Mutation.Worker/Mutation.Worker.csproj` の `Compile Include` で source を共有する。
+`infrastructure/workers/protocol/` は CLI 側の `Mutation` と worker の両方が使う契約で、worker は `src/Mutation.Worker/Mutation.Worker.csproj` の `Compile Include` で source を共有する。
 
 worker はテスト assembly の基盤を `src/Mutation.Worker/hosts/HostSelection.cs` で判別し、`ITestHost` の実装を選ぶ。
 判別は `xunit.core.dll` があれば xunit v2、VSTest adapter があれば VSTest adapter、Microsoft.Testing.Platform の実行体なら Platform の順である。
@@ -120,23 +125,23 @@ framework 内の並列は、xunit v2 で `MaxParallelThreads` を 1 にし、VST
 `--detection-matrix` を指定すると、CLI は `run` 指示の `AllFailures` を立て、worker は最初の失敗で打ち切らずに求められた全テストを実行する。
 xunit v2 と VSTest adapter は一回の実行の中でテストごとの失敗と完了を記録し、Microsoft.Testing.Platform はテストごとに entry point を呼んで失敗をテストへ帰属させる。
 記録の型は `src/Mutation.Worker/observation/RunObservation.cs` で、worker は失敗した全テストと結果を観測した全テストの識別子を `RunCompleted` で返す。
-`verifying/infrastructure/workers/DetectionRows.cs` がそれを変異ごとの `DetectionRow` へ写し、応答が無い run は求めた全テストを未実行とする。
+`infrastructure/workers/DetectionRows.cs` がそれを変異ごとの `DetectionRow` へ写し、応答が無い run は求めた全テストを未実行とする。
 判定は最初の失敗で決まるので、既定の実行と同じ規則である。
 通常の被覆と static または ambient の被覆を両方持つ変異は、既定の実行では共有側で検出すれば隔離側を走らせないが、行列の実行では隔離側のテストも走らせ、`DetectionRows.Merge` で両方の行を一行へ合わせる。
 判定は共有側の検出のままである。
 検出行列は前回の判定から得られないため、この指定は `--with-baseline` の継承と再利用を止める。
-所在は `composition/operations/MutationTesting.cs` である。
+所在は `application/usecases/run-mutation-testing/RunRequest.cs` である。
 振る舞いは `tests/Mutation.Tests/verifying/TestingOrchestratorFacts.cs`、`TestingOrchestratorRowFacts.cs`、`DetectionRowsFacts.cs`、`MutationTestingBaselineFacts.cs`、`tests/e2e/medium/detection-matrix/verify-detection-matrix.sh` が固定する。
 
 baseline は変異を全て不活性にした assembly でテストを一度実行する。
-テストごとに、結果、所要時間、被覆した変異、probe の呼び出し回数を集め、`verifying/infrastructure/workers/BaselineMapping.cs` が `BaselineProfile` へ写す。
+テストごとに、結果、所要時間、被覆した変異、probe の呼び出し回数を集め、`infrastructure/workers/BaselineMapping.cs` が `BaselineProfile` へ写す。
 baseline の被覆収集は、テスト数と `--concurrency` に応じて最大 `テスト数 / 8` の worker に分担できる。
 `BaselineExecution.cs` が分担し、テストが一件も見つからなければ `PipelineFailure.NoTestsFound` で対象を中断する。
 baseline で失敗したテストは以後の選択から除外する。
 複数 worker の観測の集計と不正な発見応答の拒否は、`tests/Mutation.Tests/verifying/BaselineExecutionFacts.cs` が実 process の worker を使って固定する。
 同じ検査が、テストを発見した worker が最初の分担を受け持つことと、分担を終えた worker へ終了の指示を送ることも固定する。
 
-`verifying/domain/services/MutantScheduler.cs` が、被覆から変異ごとの実行計画を算出する。
+`domain/services/MutantScheduler.cs` が、被覆から変異ごとの実行計画を算出する。
 被覆するテストが無い変異は実行せず `NoCoverage` にする。
 被覆するテストは baseline の所要時間の昇順に並べ、実行時間の予算は被覆テストの所要時間の合計の 2 倍に 2000ms を足した値にする。
 昇順は worker へ渡すテスト列の順であり、基盤がその列の順に実行するかは確かめていない。
@@ -157,13 +162,14 @@ static 初期化の文脈にある変異と、テスト境界の外か static �
 この検査は、本物の `WorkerClient` が `tests/Mutation.ScriptedWorker/` の実 process と往復し、判定・`WorkerRestarts`・worker process の残り方で確かめる。
 
 無限走行は probe の呼び出し回数の上限で即断する。
-上限は `verifying/domain/services/HitLimits.cs` が、実行するテストの baseline の probe 回数の最大値に 200 を掛けて 100,000 を足した値にする。
+上限は `domain/services/HitLimits.cs` が、実行するテストの baseline の probe 回数の最大値に 200 を掛けて 100,000 を足した値にする。
 上限を超えると、注入クラスが目印付きの例外を投げて worker が `hitlimit` を返し、判定は `TimedOut` になる。
 probe を通らないループと、例外を握り潰す包括的な catch は、実行時間の予算に応答の猶予 5 秒(`RunDeadlines.cs`)を足した期限と worker の終了で捕らえる。
 `HitLimits` の値は `tests/Mutation.Tests/verifying/VerdictVocabularyFacts.cs` が固定する。
 
-判定は `verifying/infrastructure/workers/VerdictInterpretation.cs` が決める。
-baseline で成功したテストが失敗すれば `Killed`、全て成功すれば `Survived` になる。`Survived` にするのは worker が `survived` を返したときだけで、`killed`、`survived`、`hitlimit` 以外の結末の値は `UnjudgedCause.RunnerFailure` の未判定にする。
+判定は `infrastructure/workers/VerdictInterpretation.cs` が決める。
+baseline で成功したテストが失敗すれば `Killed`、全て成功すれば `Survived` になる。
+`Survived` にするのは worker が `survived` を返したときだけで、`killed`、`survived`、`hitlimit` 以外の結末の値は `UnjudgedCause.RunnerFailure` の未判定にする。
 応答が無く worker が終了していれば `Killed` で、検出の経緯は `(process crash)` とする。
 worker が `Failed` を返した場合、応答が無く期限切れでも取り消しでもなく worker も生きている場合、共有 worker と隔離 process が init に失敗した場合も、`UnjudgedCause.RunnerFailure` の未判定にする。
 この未判定は検出にも未検出にも数えず、`Pending` として報告し、`unjudgedBy.runnerFailure` に数える。
@@ -205,13 +211,17 @@ SIGKILL は受け取れないので、止まった走行の判定は追記の記
 
 保存は、継承を求めない走行も含めて、全ての走行が対象ごとに `work/<対象名>/snapshot.json` へ書く。
 `--with-baseline` を指定すると、次の実行がそれを再利用する。
-保存と再利用の所在は `verifying/infrastructure/snapshot/` にある。
+保存と再利用の所在は `infrastructure/snapshot/` にある。
 再利用には、全体の再構築と変異ごとの継承の二つの経路があり、どちらも、入力の閉包の同一性が前回と一致することを条件にする。
 
-閉包の同一性は `mutating/infrastructure/fingerprint/CompilationFingerprint.cs` が、`InputClosure.cs` の記述から計算し、`ReuseIdentity` として返す。
+閉包の同一性は `infrastructure/fingerprint/CompilationFingerprint.cs` が、`InputClosure.cs` の記述から計算し、`ReuseIdentity` として返す。
 閉包には、csc 引数の文字列と、ソース、additional file、embed する file、analyzer config、参照する assembly、analyzer と generator、resource、署名の鍵の内容を含める。
-テスト assembly の directory の全 file の内容(`TestResults` の下を除く)、engine と worker と compiler の assembly の内容も含める。
-さらに runtime の版と識別子、OS の版、環境変数の名前と値、作業 directory、設定の要約を含める。
+テスト assembly の directory の全 file の内容を含め、`TestResults` という名前だけでは除外しない。
+除外するのは engine が所有する作業 directory だけで、それがテスト assembly を含む場合は再利用を止める。
+起動する dotnet host、worker の配備 directory 全体(runtimeconfig、deps、依存 DLL を含む)、engine と compiler の assembly の内容も含める。
+`RunMutationTesting` は `IWorkerRuns.Host` を一度読み、同じ `WorkerHost` を同一性の計算と実際の起動に渡す。
+走行ごとの共通入力は `IFingerprints.Capture` で採り直し、runtime の版と識別子、OS の版、環境変数の名前と値、作業 directory、構造化した設定を含める。
+設定の列は JSON の配列で記述し、一要素内の区切り文字と複数要素を混同しない。
 環境変数は hash にだけ使い、値を平文で保存しない。
 読めない入力が一つでもあれば同一性は不在になり、その走行は何も継承せず、保存も継承の根拠を持たない。
 全体の指紋は、閉包に、対象のソースごとの変わった行の範囲と、`--since` が選んだ候補の範囲の鍵を加える。
@@ -227,7 +237,7 @@ SIGKILL は受け取れないので、止まった走行の判定は追記の記
 設定、他のファイル、参照する assembly、analyzer と generator、additional file、analyzer config、テストの補助 file のどれが変わっても閉包の同一性が変わるので、継承しない。
 同一性を持たない前の版の保存も、継承しない。
 判定の合成は、今回の `CompileError`、`NoCoverage`、`Ignored` を先に置き、継承した判定は今回の分類のない変異にだけ置き、実行した判定を最後に置く。
-所在は `verifying/application/workflows/verify-mutants/VerdictMerge.cs` の `Merge` である。
+所在は `application/usecases/run-mutation-testing/VerdictMerge.cs` の `Merge` である。
 継承が届くのは今回の実行計画に載った変異だけで、`VerifyMutants` は継承した件数を実行計画に載った変異の中で数える。
 振る舞いは `tests/Mutation.Tests/verifying/VerifyMutantsFacts.cs`、`SnapshotReuseFacts.cs`、`SnapshotStoreFacts.cs`、`VerifyMutantsResumeFacts.cs`、`tests/Mutation.Tests/mutating/CompilationFingerprintFacts.cs`、`tests/e2e/medium/reuse/verify-reuse.sh` が固定する。
 閉包が見ない入力は [limitations.md](limitations.md) にある。
@@ -246,7 +256,7 @@ SIGKILL は受け取れないので、止まった走行の判定は追記の記
 
 ## 出力の配置
 
-出力 directory の配置は `verifying/application/workflows/run-mutation-testing/RunLayout.cs` が一点で所有する。
+出力 directory の配置は `application/usecases/run-mutation-testing/RunLayout.cs` が一点で所有する。
 次の表の path は `--output` で指定した出力 directory からの相対であり、リポジトリ直下の作業記録用 `work/` とは別である。
 
 | 置き場 | 内容 |
@@ -262,7 +272,7 @@ SIGKILL は受け取れないので、止まった走行の判定は追記の記
 
 ## 報告
 
-`reports/mutation-report.json` は mutation-testing-elements の report schema の書式で、`verifying/infrastructure/reports/StrykerReport.cs` が書き出す。
+`reports/mutation-report.json` は mutation-testing-elements の report schema の書式で、`infrastructure/reports/StrykerReport.cs` が書き出す。
 変異の id は `<対象名>:<連番>` で修飾して対象をまたいで一意にする。
 `--detection-matrix` の実行では、検出行列の行を持つ変異が、失敗した全テストの表示名を `killedBy` へ、実行を求めたテストを `coveredBy` へ、結果を観測したテストの数を `testsCompleted` へ書く。
 未実行のテストが残った変異は `statusReason` でそのテストを名指しし、行列が完全でないことを示す。
@@ -278,15 +288,19 @@ SIGKILL は受け取れないので、止まった走行の判定は追記の記
 判定を確定できなかった変異は `MutantVerdict.Unjudged` で表し、報告の status は `Pending`、`statusReason` に理由を書く。
 検出にも未検出にも数えないので score の母数に入らず、`changed-lines` の判定は、未検出がなく未判定が残るときに合格と言わず失敗として返す。
 形式は `tests/Mutation.Tests/verifying/RunStateReportFacts.cs` が固定する。
-`--since` の実行では、`run.selection` が対象ごとに、選んだ範囲、理由、未分析の関係、入力でないと判断した file を持つ。
-`StrykerReport.Parse` は、`run.selection[].unanalysed` を読み戻した報告の `Unanalysed` に取り出し、`changed-lines` が判定の後に出力する。
+`--since` の実行では、`run.selection` が対象ごとに、選んだ範囲、理由、未分析の関係を持つ。
+`StrykerReport.Parse` は、`run.selection[].unanalysed` を読み戻した報告の `Unanalysed` に取り出す。
+`changed-lines` は未検出の有無を先に判定し、次に変更行の `Pending`、最後に走行の失敗・中断を判定する。
+未検出があれば終了コード 2、未検出がなくても `Pending` または `failed`・`interrupted` の走行なら終了コード 1 であり、生成 0 件を成功の根拠にしない。
+未分析の範囲は、正常な判定でもこれらの失敗の診断でも表示する。
+`run` を持たない旧形式の報告は従来どおり判定し、未知の state は読取失敗にする。
 
-`changed-lines` command は、`run --since` が書いた報告を、`composition/adapters/ChangedLinesFromGit.cs` が返す変更行と突き合わせ、変わった行に重なる未検出の mutant を判定する。
+`changed-lines` command は、`run --since` が書いた報告を、`infrastructure/git/ChangedLinesFromGit.cs` が返す変更行と突き合わせ、変わった行に重なる未検出の mutant を判定する。
 `Survived` と `NoCoverage` を未検出と数える。
-所在は `verifying/application/usecases/JudgeChangedLines.cs` で、`tests/Mutation.Tests/root/ChangedLinesGateFacts.cs` と `verifying/JudgeChangedLinesFacts.cs` が固定する。
+所在は `application/usecases/judge-changed-lines/JudgeChangedLines.cs` で、`tests/Mutation.Tests/root/ChangedLinesGateFacts.cs` と `verifying/JudgeChangedLinesFacts.cs` が固定する。
 差分は `git diff --no-renames` の一回の解決で得て、移動と改名を削除と追加とみなす。
 `--since` の file 選別と `changed-lines` の判定は、同じ解決を使う。
-所在は `mutating/infrastructure/git/` である。
+所在は `infrastructure/git/` である。
 
 ## 構造と依存方向
 
@@ -294,27 +308,32 @@ SIGKILL は受け取れないので、止まった走行の判定は追記の記
 
 | project | 役割 |
 |---|---|
-| `src/Mutation/` | engine。文脈、共有の値、契約、組立点を持つ |
-| `src/Mutation.Cli/` | CLI。`composition/BuildCore.cs` が返した operation を呼び、表示だけを持つ |
+| `src/Mutation/` | engine。単一の変異検査 context と組立点 |
+| `src/Mutation.Cli/` | CLI。`composition/BuildCore.cs` が返す application の入口を呼ぶ入力変換と表示 |
 | `src/Mutation.Worker/` | 常駐するテストホスト。基盤ごとのホストと、変異 assembly の切替を持つ |
 
-engine は、変異を作る `mutating/` と、検査して run を所有する `verifying/` の二つの文脈に分かれる。
-文脈の中は、`domain/`、`application/`、`infrastructure/` の層に分かれ、依存は infrastructure から application、application から domain へ向かう。
-`shared/` は二つの文脈が同じ意味で使う値と失敗を持ち、`protocol/` は CLI と worker の契約を持つ。
-`composition/` は adapter を port へ配線し、外の設定を workflow の語彙へ写して呼ぶだけで、業務判断を持たない。
-`verifying/` の `IMutantSource` は変異の取得を port として宣言し、`composition/adapters/MutantSourceFromMutating.cs` が `mutating/` の use-case へ写す。
+engine は、変異の生成から判定・保存までを一つの操作として扱う単一 context である。
+生成と判定は独立した業務ではなく、同じ変異と判定の規則を使う段階なので、別 context や業務型を置く shared kernel に分けない。
+`domain/`、`application/`、`infrastructure/` の層に分かれ、依存は infrastructure から application、application から domain へ向かう。
+`application/usecases/run-mutation-testing/` の `RunMutationTesting` が一回の操作を所有し、準備・生成・判定は同じ use-case 内の処理である。
+`RunRequest` はその公開入力であり、`ReuseEnabled` が検出行列の指定時の再利用を止める。
+`MutationSource` は準備ごとに生成入力を保持した `PreparedTarget` を返し、同じ project を後から準備しても、先の対象の入力を上書きしない。
+保存した報告の変更行判定は `application/usecases/judge-changed-lines/` の別の公開操作である。
+`composition/BuildCore.Create` は依存を組み立て、二つの application 入口を `MutationApi` として返すだけで、入力変換や業務判断を持たない。
+`infrastructure/workers/protocol/` は worker 通信の契約であり、domain の共有型ではない。
 
 依存方向と層の構成は `tests/Mutation.Tests/root/ArchitectureFacts.cs` が検査する。
 検査の内容は次のとおりである。
 
-- 二つの文脈が互いと composition を参照しない。
-- domain が application と infrastructure を参照しない。
-- application が infrastructure を参照しない。
-- domain と application の直下が、規範の単位フォルダだけで構成される。
-- 各 project の root 直下が entry point だけである。
-- shared kernel がどの文脈にも依存しない。
-- protocol がどの境界にも依存しない。
+- core が一つの context の層だけを持つ。
+- domain が application、infrastructure、composition、通信契約を参照しない。
+- application が infrastructure、composition、通信契約を参照しない。
+- infrastructure が composition を参照しない。
+- protocol が core の業務型や層へ依存しない。
 - CLI が infrastructure へ届かない。
+- domain と application の直下が規範の単位フォルダだけで構成され、project の root 直下が entry point だけである。
+
+参照は Roslyn の意味モデルで解決し、コメントや文字列中の型名を依存として数えない。
 
 engine の `Result` と閉じた直和は、隣接 checkout の typemodeling-dotnet を `src/Mutation/Mutation.csproj` の `ProjectReference` で参照する。
 

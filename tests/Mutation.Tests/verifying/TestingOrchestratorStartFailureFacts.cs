@@ -1,6 +1,5 @@
 using Mutation.Protocol;
-using Mutation.Shared;
-using Mutation.Verifying.Domain;
+using Mutation.Domain;
 using System.Collections.Concurrent;
 using TUnit.Core;
 

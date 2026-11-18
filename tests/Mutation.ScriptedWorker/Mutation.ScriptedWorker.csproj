@@ -4,6 +4,6 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="../../src/Mutation/protocol/*.cs" LinkBase="protocol" />
+    <Compile Include="../../src/Mutation/infrastructure/workers/protocol/*.cs" LinkBase="protocol" />
   </ItemGroup>
 </Project>

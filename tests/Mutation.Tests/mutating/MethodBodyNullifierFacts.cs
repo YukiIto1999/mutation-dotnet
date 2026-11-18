@@ -1,5 +1,5 @@
 
-using Mutation.Mutating.Infrastructure.Roslyn.Operators;
+using Mutation.Infrastructure.Roslyn.Operators;
 using TUnit.Core;
 
 namespace Mutation.Tests;

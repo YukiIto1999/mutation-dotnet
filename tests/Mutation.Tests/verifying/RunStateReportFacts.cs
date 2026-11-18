@@ -1,7 +1,6 @@
 using System.Text.Json;
-using Mutation.Shared;
-using Mutation.Verifying.Domain;
-using Mutation.Verifying.Infrastructure.Reports;
+using Mutation.Domain;
+using Mutation.Infrastructure.Reports;
 using TUnit.Core;
 
 namespace Mutation.Tests;

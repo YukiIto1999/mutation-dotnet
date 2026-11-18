@@ -60,10 +60,10 @@ A target that fails does not stop the others. Abandoned targets appear in the su
 | `--ignore-methods NAMES` | Do not mutate inside calls to these methods (for example `ConfigureAwait`). `,` separates |
 | `--validate-survivors` | Re-verify surviving mutants in a fresh process |
 | `--exclude-static` | Ignore mutants in a static context, or that run outside a test or during static initialization, even when ordinary tests cover them. They are reported as Ignored |
-| `--with-baseline` | Inherit verdicts from the previous run in the same output directory of the same kind (a whole run from a whole run, a `--since` run from a `--since` run), but only when the input closure and the settings are identical; the mutant's file, mutant sequence and covering tests must match too. Any changed source, reference, config, test or setting re-judges the mutants. The current `CompileError`, `NoCoverage` and `Ignored` classification always wins over an inherited verdict. A run that stopped before it finished leaves the verdicts it had settled, so the same command continues with the mutants that still have none |
+| `--with-baseline` | Reuse settled verdicts from the same output directory and run kind only when captured inputs and settings match. The current `CompileError`, `NoCoverage` and `Ignored` classification always wins. Interrupted runs retain settled verdicts and test the remaining mutants on resumption |
 | `--detection-matrix` | Do not stop at the first failing test: run every covering test of each mutant and record every failing test in the report. Verdicts are unchanged; previous verdicts are not inherited, so `--with-baseline` has no effect |
 
-Reuse assumes that tests depend only on the captured compilation, test output and execution environment. Copy runtime fixture files into test output; omit `--with-baseline` for tests that read uncaptured external files, network state or time. Environment variables and the working directory participate in the identity as a hash, not as stored plaintext.
+Reuse assumes that tests depend only on the captured compilation, test output and execution environment, with installed runtimes held fixed. Copy runtime fixture files into test output; omit `--with-baseline` for tests that read uncaptured external files, network state or time. Environment variables and the working directory participate in the identity as a hash, not as stored plaintext. Worker assets and test data, including files under `TestResults`, participate; only the engine-owned work directory is excluded. If that exclusion would hide the test assembly, reuse is disabled.
 
 ## Reports
 
@@ -76,9 +76,12 @@ With `--detection-matrix`, each executed mutant in `mutation-report.json` lists 
 
 Both files carry a `run` object that tells whether the run settled every mutant. `state` is `completed` when every target reached judgement and every mutant has a verdict, and `interrupted`, `failed` or `unjudged` otherwise (in that order of precedence): `interrupted` after a cancellation, `failed` when a target did not reach judgement for another reason (build, target location, generation or baseline failure), `unjudged` when some mutants have no verdict. `complete` is true only for `completed`; `unjudged` counts the mutants without a verdict and `unjudgedBy` splits them by cause (`notRun`, `interrupted`, `contendedTimeout`, `runnerFailure`); `interruptedTargets` names the targets a cancellation stopped and `failedTargets` the targets that failed before judgement. A mutant without a verdict has the status `Pending` and a `statusReason`. It counts neither as detected nor as undetected, so it stays out of the mutation score.
 
+A build failure also replaces the previous report with a failed run; an earlier successful report is not left as the result of the new invocation.
+
 A test runner failure is such a cause. When the worker cannot open its test host (shared or isolated), answers a run with a failure or with an outcome other than `killed`, `survived` or `hitlimit`, or gives no answer without being stopped for a deadline or cancellation, the mutant is `Pending` with `unjudgedBy.runnerFailure`, and no test is recorded as having detected it. Only a failing test, a probe-count or deadline `Timeout` (after the control run above), and a worker process that dies while the mutant runs are `Killed` or `Timeout`. `run` prints the number of runner failures and exits with 3.
 
-For a `--since` run, `run.selection` has one entry per target: its `scope` (`full-production`, `changed-lines` or `no-impact`), the `reasons` (relation and files) that decided it, the `unanalysed` relations an explicit `--changed-lines` subset left out, and the `notInputs` files that were judged not to reach the target. See [Selecting by change](#selecting-by-change).
+For a `--since` run, `run.selection` has one entry per target: its `scope` (`full-production`, `changed-lines` or `no-impact`), the `reasons` (relation and files) that decided it, and the `unanalysed` relations an explicit `--changed-lines` subset left out.
+See [Selecting by change](#selecting-by-change).
 
 ## Stopping a run
 
@@ -98,11 +101,11 @@ A mutant whose tests exceed their time budget is not counted as detected at once
 
 ## Selecting by change
 
-With `--since REF`, the engine classifies every changed file against the compiler inputs of the target and the paired test project. Known relations include production sources, tests, referenced projects and build inputs. A file outside those inputs is not proof of no impact: an external import or runtime fixture can still affect the tests. Unknown files and deletions therefore select the whole target. Only known build outputs under `bin` and `obj` are excluded.
+With `--since REF`, the engine classifies every changed file against the compiler inputs of the target and the paired test project. Known relations include production sources, tests, referenced projects and build inputs. A file outside those inputs is not proof of no impact: an external import or runtime fixture can still affect the tests. Unknown files and deletions therefore select the whole target, including unknown files under `bin` or `obj`.
 
 | What changed | Selection |
 |---|---|
-| No changed input, or only excluded build outputs | `no-impact`: no candidates. Excluded files are recorded under `run.selection[].notInputs` |
+| No changes | `no-impact`: no candidates |
 | A production source, test, referenced project, build input, deleted file or file of unknown relation | `full-production`: every production file of the target that `--mutate` allows. Unchanged callers and unknown input relations cannot justify a finer scope. `run.selection[].reasons` lists the relations and files |
 | The same changes with `--changed-lines` | `changed-lines`: only mutants on changed lines of changed production files, as an explicit subset. Tests, build inputs, referenced projects, deletions and unchanged callers are recorded under `run.selection[].unanalysed`, the console summary prints them, and `changed-lines` prints them after its verdict |
 
@@ -110,7 +113,11 @@ Selection is reported per target. An unknown file can broaden every supplied tar
 
 ## Changed-line gate
 
-`run --since REF --changed-lines` generates only mutants whose reported line range overlaps a line changed since `REF`. `changed-lines` judges the report of that run, exiting nonzero if any changed-line mutant is undetected. Changed lines are the new side of the working tree against `REF`, every line of an untracked file, and every line of a file moved or renamed since `REF`, which counts as deleted and added. A mutant counts as undetected when its status is `Survived` or `NoCoverage`; mutants outside the changed lines never affect the result. A changed-line mutant that is `Pending` is not undetected, but it keeps the gate from passing: with no undetected mutant the gate exits 1 instead of 0. A per-change run with zero generated mutants succeeds, but its verdict covers only the changed lines: when the report records unanalysed relations (a changed test, a build input, a deletion, unchanged callers), `changed-lines` prints them after the verdict. A whole-project run with zero generated mutants fails the full verification gate.
+`run --since REF --changed-lines` generates only mutants whose reported line range overlaps a changed line. `changed-lines` judges that report against the same `REF`: changes include the new side of the working-tree diff, all lines of untracked files, and moved or renamed files treated as deleted and added.
+
+Changed-line mutants with `Survived` or `NoCoverage` make the gate exit 2. With none undetected, a changed-line `Pending` mutant or an explicitly `failed` or `interrupted` run makes it exit 1, even when no mutant was generated. Unknown run states are unreadable; legacy reports without `run` retain their previous interpretation.
+
+A completed per-change run with zero generated mutants passes only for that subset; a whole-project run with zero generated mutants fails the full verification gate. Omitted impact is printed on both normal verdicts and judgement failures, so the result does not imply that unanalysed relations were covered.
 
 For a pre-push check, pass the point where the pushed range starts, for example the merge base with the upstream branch:
 
@@ -127,7 +134,7 @@ dotnet src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll changed-lines \
 | Exit code | Meaning |
 |---|---|
 | 0 | No mutant on a changed line is undetected, including when no mutant lies on a changed line |
-| 1 | The report cannot be read, the diff against `REF` cannot be resolved, or a mutant on a changed line is `Pending` while none is undetected |
+| 1 | The report or diff is unreadable, or no changed-line mutant is undetected but a mutant is `Pending` or the reported run failed or was interrupted |
 | 2 | At least one mutant on a changed line is undetected. Each is printed as `path:line:column status mutator: replacement` |
 
 ## Development

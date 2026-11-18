@@ -1,6 +1,6 @@
+using Mutation.Application;
 using Mutation.Composition;
-using Mutation.Shared;
-using Mutation.Verifying.Domain;
+using Mutation.Domain;
 using TUnit.Core;
 
 namespace Mutation.Tests;
@@ -13,24 +13,20 @@ public sealed partial class ChangedLinesGateFacts
     {
         using var repo = await TempRepository.CreateAsync();
         var baseRef = await CommitFixtureAsync(repo);
-        var options = new MutationRunOptions(
-            [FixtureTarget(repo)], "Debug", 2, false, false, [], baseRef, true, [], [],
-            repo.PathOf("out/lines"), true
-        );
+        var options = new RunRequest([FixtureTarget(repo)], new MutationSelection([], baseRef, true, [], []), new ExecutionSettings(2, false, false, false), repo.PathOf("out/lines"), true);
         var result = await RunAsync(options);
         await Assert.That(result.Failures).IsEmpty();
         await Assert.That(result.Completed.Single().Mutants.Select(m => m.Span.Line).ToArray()).IsEquivalentTo([11]);
-        var judged = BuildCore.Create().OnChangedLines(
-            repo.PathOf("out/lines/reports/mutation-report.json"), baseRef);
+        var judged = BuildCore.Create().ChangedLines.Execute(repo.PathOf("out/lines/reports/mutation-report.json"), baseRef);
         await Assert.That(judged.IsFailed(out _, out var verdicts)).IsFalse();
         await Assert.That(verdicts!.Undetected.Count).IsEqualTo(1);
 
-        var fileResult = await RunAsync(options with { ChangedLinesOnly = false });
+        var fileResult = await RunAsync(options with { Selection = options.Selection with { ChangedLinesOnly = false } });
         await Assert.That(fileResult.Failures).IsEmpty();
         await Assert.That(fileResult.Completed.Single().Mutants.Any(m => m.Span.Line == 9)).IsTrue();
 
         var missingResult = await RunAsync(
-            options with { SinceRef = null, OutputDirectory = repo.PathOf("out/missing-base") });
+            options with { Selection = options.Selection with { SinceRef = null }, OutputDirectory = repo.PathOf("out/missing-base") });
         await Assert.That(missingResult.Failures.Single().Failure is PipelineFailure.SinceUnavailable).IsTrue();
         await Assert.That(((PipelineFailure.SinceUnavailable)missingResult.Failures.Single().Failure).Reason)
             .Contains("--since");
@@ -43,10 +39,7 @@ public sealed partial class ChangedLinesGateFacts
         using var repo = await TempRepository.CreateAsync();
         const string upstream = "refs/remotes/origin/main";
         await repo.SetRefAsync(upstream, await CommitFixtureAsync(repo));
-        var options = new MutationRunOptions(
-            [FixtureTarget(repo)], "Debug", 2, false, false, [], "origin/main", true, [], [],
-            repo.PathOf("out/lines"), true
-        );
+        var options = new RunRequest([FixtureTarget(repo)], new MutationSelection([], "origin/main", true, [], []), new ExecutionSettings(2, false, false, false), repo.PathOf("out/lines"), true);
         var first = await RunAsync(options);
         await Assert.That(first.Completed.Single().Mutants.Select(m => m.Span.Line).ToArray()).IsEquivalentTo([11]);
 
@@ -66,13 +59,10 @@ public sealed partial class ChangedLinesGateFacts
     {
         using var repo = await TempRepository.CreateAsync();
         var baseRef = await CommitFixtureAsync(repo);
-        var whole = new MutationRunOptions(
-            [FixtureTarget(repo)], "Debug", 2, false, false, [], null, false, [], [],
-            repo.PathOf("out/shared"), true
-        );
+        var whole = new RunRequest([FixtureTarget(repo)], new MutationSelection([], null, false, [], []), new ExecutionSettings(2, false, false, false), repo.PathOf("out/shared"), true);
         var first = await RunAsync(whole);
-        await RunAsync(whole with { SinceRef = baseRef });
-        await RunAsync(whole with { SinceRef = baseRef, ChangedLinesOnly = true });
+        await RunAsync(whole with { Selection = whole.Selection with { SinceRef = baseRef } });
+        await RunAsync(whole with { Selection = whole.Selection with { SinceRef = baseRef, ChangedLinesOnly = true } });
 
         var progress = new List<RunProgress>();
         var last = await RunAsync(whole, progress.Add);
@@ -89,13 +79,10 @@ public sealed partial class ChangedLinesGateFacts
         await WriteFixtureAsync(repo);
         var baseRef = await repo.CommitAllAsync();
         await File.AppendAllTextAsync(repo.PathOf("src/Fixture.Target.Tests/CalculatorTests.cs"), "\n// a test changed\n");
-        var options = new MutationRunOptions(
-            [FixtureTarget(repo)], "Debug", 2, false, false, [], baseRef, false, [], [],
-            repo.PathOf("out/test-only"), false
-        );
+        var options = new RunRequest([FixtureTarget(repo)], new MutationSelection([], baseRef, false, [], []), new ExecutionSettings(2, false, false, false), repo.PathOf("out/test-only"), false);
 
         var whole = await RunAsync(options);
-        var subset = await RunAsync(options with { ChangedLinesOnly = true, OutputDirectory = repo.PathOf("out/test-only-lines") });
+        var subset = await RunAsync(options with { Selection = options.Selection with { ChangedLinesOnly = true }, OutputDirectory = repo.PathOf("out/test-only-lines") });
 
         var selected = whole.Completed.Single();
         await Assert.That(selected.Selection!.Scope is SelectionScope.FullProduction).IsTrue();
@@ -115,10 +102,7 @@ public sealed partial class ChangedLinesGateFacts
         await WriteFixtureAsync(repo);
         await repo.WriteAsync("src/Fixture.Target/Spare.cs", "namespace Fixture.Target;\n\ninternal static class Spare\n{\n}\n");
         var baseRef = await repo.CommitAllAsync();
-        var options = new MutationRunOptions(
-            [FixtureTarget(repo)], "Debug", 2, false, false, [], baseRef, false, [], [],
-            repo.PathOf("out/unknown"), false
-        );
+        var options = new RunRequest([FixtureTarget(repo)], new MutationSelection([], baseRef, false, [], []), new ExecutionSettings(2, false, false, false), repo.PathOf("out/unknown"), false);
 
         await repo.WriteAsync("docs/guide.md", "documentation only\n");
         var unknown = (await RunAsync(options)).Completed.Single();
@@ -137,7 +121,6 @@ public sealed partial class ChangedLinesGateFacts
         await Assert.That(unknown.Selection!.Scope is SelectionScope.FullProduction).IsTrue();
         await Assert.That(unknown.Mutants.Any(m => m.Span.Line == 9)).IsTrue();
         await Assert.That(RelationNames(unknown.Selection.Reasons)).IsEquivalentTo(["unknown-input"]);
-        await Assert.That(unknown.Selection.NotInputs).IsEmpty();
         await Assert.That(configured.Selection!.Scope is SelectionScope.FullProduction).IsTrue();
         await Assert.That(RelationNames(configured.Selection.Reasons)).IsEquivalentTo(["config-changed"]);
         await Assert.That(configured.Mutants.Any(m => m.Span.Line == 9)).IsTrue();
@@ -159,13 +142,10 @@ public sealed partial class ChangedLinesGateFacts
         );
         var baseRef = await repo.CommitAllAsync();
         await File.AppendAllTextAsync(repo.PathOf("src/Fixture.Lib/Lib.cs"), "\n// the library changed\n");
-        var options = new MutationRunOptions(
-            [FixtureTarget(repo)], "Debug", 2, false, false, [], baseRef, false, [], [],
-            repo.PathOf("out/dependency"), false
-        );
+        var options = new RunRequest([FixtureTarget(repo)], new MutationSelection([], baseRef, false, [], []), new ExecutionSettings(2, false, false, false), repo.PathOf("out/dependency"), false);
 
         var whole = (await RunAsync(options)).Completed.Single();
-        var subset = (await RunAsync(options with { ChangedLinesOnly = true, OutputDirectory = repo.PathOf("out/dependency-lines") })).Completed.Single();
+        var subset = (await RunAsync(options with { Selection = options.Selection with { ChangedLinesOnly = true }, OutputDirectory = repo.PathOf("out/dependency-lines") })).Completed.Single();
 
         await Assert.That(whole.Selection!.Scope is SelectionScope.FullProduction).IsTrue();
         await Assert.That(RelationNames(whole.Selection.Reasons)).IsEquivalentTo(["dependency-changed"]);
@@ -212,16 +192,17 @@ public sealed partial class ChangedLinesGateFacts
         [.. reasons.Select(reason => reason.Relation.Name).Order(StringComparer.Ordinal)];
 
     /// <summary>一時 repository に書いた検証フィクスチャの対象とテストの project</summary>
-    private static TargetSpec FixtureTarget(TempRepository repo) =>
+    private static TargetProjects FixtureTarget(TempRepository repo) =>
         new(
             repo.PathOf("src/Fixture.Target/Fixture.Target.csproj"),
-            repo.PathOf("src/Fixture.Target.Tests/Fixture.Target.Tests.csproj")
+            repo.PathOf("src/Fixture.Target.Tests/Fixture.Target.Tests.csproj"),
+            "Debug"
         );
 
     /// <summary>組み立て済みの経路での一回の実行と、成功したときの確定結果</summary>
-    private static async Task<MutationRunResult> RunAsync(MutationRunOptions options, Action<RunProgress>? progress = null)
+    private static async Task<MutationRunResult> RunAsync(RunRequest options, Action<RunProgress>? progress = null)
     {
-        var run = await BuildCore.Create().RunAsync(options, progress ?? (_ => { }));
+        var run = await BuildCore.Create().Run.ExecuteAsync(options, progress ?? (_ => { }));
         await Assert.That(run.IsFailed(out _, out var result)).IsFalse();
         return result!;
     }

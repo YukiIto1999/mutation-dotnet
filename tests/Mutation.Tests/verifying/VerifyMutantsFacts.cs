@@ -1,6 +1,5 @@
-using Mutation.Shared;
-using Mutation.Verifying.Application;
-using Mutation.Verifying.Domain;
+using Mutation.Domain;
+using Mutation.Application;
 using TUnit.Assertions.Enums;
 using TUnit.Core;
 
@@ -145,19 +144,18 @@ public sealed class VerifyMutantsFacts
             pipeline.Mutants,
             pipeline.CompileErrors,
             pipeline.Baseline,
-            new WorkerLaunchPlan("worker.dll", "tests.dll", "/mutated", "Target", "/results"),
+            new WorkerLaunchPlan(new WorkerHost("host", "worker.dll"), "tests.dll", "/mutated", "Target", "/results"),
             execution,
             WithBaseline: false,
-            Fingerprint: null,
-            ClosureIdentity: null,
+            Identity: null,
             MutatedAssemblyPath: "/mutated/Target.dll",
             SnapshotPath: "/work/snapshot.json",
             _ => { },
             CancellationToken.None
         );
 
-    /// <summary>前回の保存から継承を求める判定確定の入力の、入力の閉包の同一性</summary>
-    private const string BaselineClosure = "closure-x";
+    /// <summary>前回の保存から継承を求める判定確定の入力の、再利用の同一性</summary>
+    private static readonly ReuseIdentity BaselineIdentity = new("closure-x", "fingerprint-x");
 
     /// <summary>この環境の変異の判定確定の入力。前回の保存から継承を求める</summary>
     private static VerificationRequest BaselineRequest(
@@ -169,11 +167,10 @@ public sealed class VerifyMutantsFacts
             pipeline.Mutants,
             pipeline.CompileErrors,
             pipeline.Baseline,
-            new WorkerLaunchPlan("worker.dll", "tests.dll", "/mutated", "Target", "/results"),
+            new WorkerLaunchPlan(new WorkerHost("host", "worker.dll"), "tests.dll", "/mutated", "Target", "/results"),
             execution,
             WithBaseline: true,
-            Fingerprint: null,
-            ClosureIdentity: BaselineClosure,
+            Identity: BaselineIdentity,
             MutatedAssemblyPath: "/mutated/Target.dll",
             SnapshotPath: "/work/snapshot.json",
             progress,

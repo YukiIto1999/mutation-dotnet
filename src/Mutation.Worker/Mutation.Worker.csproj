@@ -7,6 +7,6 @@
     <PackageReference Include="Microsoft.TestPlatform.ObjectModel" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="../Mutation/protocol/*.cs" LinkBase="protocol" />
+    <Compile Include="../Mutation/infrastructure/workers/protocol/*.cs" LinkBase="protocol" />
   </ItemGroup>
 </Project>

@@ -1,7 +1,6 @@
 using Mutation.Protocol;
-using Mutation.Shared;
-using Mutation.Verifying.Domain;
-using Mutation.Verifying.Infrastructure.Workers;
+using Mutation.Domain;
+using Mutation.Infrastructure.Workers;
 using TUnit.Core;
 
 namespace Mutation.Tests;

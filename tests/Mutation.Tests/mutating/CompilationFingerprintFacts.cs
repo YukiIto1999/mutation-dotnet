@@ -1,13 +1,14 @@
-using Mutation.Mutating.Domain;
-using Mutation.Mutating.Infrastructure;
-using Mutation.Shared;
+using Mutation.Domain;
 using TUnit.Core;
 
 namespace Mutation.Tests;
 
 /// <summary>判定を決める入力の閉包の同一性と、変わった行を加えた全体の指紋の検査</summary>
-/// <remarks>一時 directory に csc の引数が指す実ファイルを置き、読める入力の変化が同一性へ届くことと、読めない入力が同一性を不在にすることを見る</remarks>
-public sealed class CompilationFingerprintFacts
+/// <remarks>
+/// 一時 directory に csc の引数が指す実ファイル、test の出力、worker の実体を置き、読める入力の変化が同一性へ届くことと、読めない入力が同一性を不在にすることを見る
+/// 同一性は走行のたびに読み直すので、どの検査も、同じ process の中で変更の前後に求めて比べる
+/// </remarks>
+public sealed partial class CompilationFingerprintFacts
 {
     /// <summary>読める入力が不変なら、同一性が不在でなく、何度求めても同じこと</summary>
     [Test]
@@ -40,6 +41,12 @@ public sealed class CompilationFingerprintFacts
     [Arguments("test-assembly")]
     [Arguments("test-support-file")]
     [Arguments("test-nested-support-file")]
+    [Arguments("worker-host")]
+    [Arguments("worker-assembly")]
+    [Arguments("worker-runtimeconfig")]
+    [Arguments("worker-deps")]
+    [Arguments("worker-dependency")]
+    [Arguments("worker-added-file")]
     public async Task A_change_to_any_input_that_reaches_the_verdicts_changes_the_closure_identity(string input)
     {
         using var project = new ClosureProject();
@@ -52,31 +59,89 @@ public sealed class CompilationFingerprintFacts
         await Assert.That(after.Fingerprint).IsNotEqualTo(before.Fingerprint);
     }
 
-    /// <summary>設定の要約と csc の引数の変化が、閉包の同一性を変えること</summary>
+    /// <summary>worker の directory から file が消えると、同一性が変わること</summary>
+    /// <param name="input">消す入力の名前</param>
+    /// <returns>検査の完了</returns>
     [Test]
-    public async Task A_change_of_settings_or_compiler_arguments_changes_the_closure_identity()
+    [Arguments("worker-runtimeconfig")]
+    [Arguments("worker-deps")]
+    [Arguments("worker-dependency")]
+    public async Task Removing_a_file_the_worker_is_deployed_with_changes_the_closure_identity(string input)
+    {
+        using var project = new ClosureProject();
+        var before = project.Compute()!;
+
+        project.Remove(input);
+        var after = project.Compute()!;
+
+        await Assert.That(after.Closure).IsNotEqualTo(before.Closure);
+        await Assert.That(after.Fingerprint).IsNotEqualTo(before.Fingerprint);
+    }
+
+    /// <summary>csc の引数の変化が、閉包の同一性を変えること</summary>
+    [Test]
+    public async Task A_change_of_compiler_arguments_changes_the_closure_identity()
     {
         using var project = new ClosureProject();
         var baseline = project.Compute()!;
 
-        var otherSettings = project.Compute(settings: "other settings")!;
         var otherArguments = project.Compute(extraArgument: "/define:EXTRA")!;
 
-        await Assert.That(otherSettings.Closure).IsNotEqualTo(baseline.Closure);
         await Assert.That(otherArguments.Closure).IsNotEqualTo(baseline.Closure);
     }
 
-    /// <summary>テストの実行体が成果物を書く directory の変化は、同一性を変えないこと</summary>
+    /// <summary>`TestResults` の名の directory に置かれた、test が実行時に読む data が、同一性に入ること</summary>
+    /// <remarks>名前だけでは engine や test の実行体が書いた成果物とは言えず、test の判定を決める入力かもしれない</remarks>
     [Test]
-    public async Task Files_under_a_test_results_directory_do_not_change_the_identity()
+    public async Task Runtime_data_under_a_directory_named_TestResults_is_part_of_the_identity()
     {
         using var project = new ClosureProject();
-        var before = project.Compute();
+        var before = project.Compute()!;
 
-        project.WriteTestResult();
-        var after = project.Compute();
+        project.Change("test-results-data");
+        var after = project.Compute()!;
 
-        await Assert.That(after).IsEqualTo(before);
+        await Assert.That(after.Closure).IsNotEqualTo(before.Closure);
+        await Assert.That(after.Fingerprint).IsNotEqualTo(before.Fingerprint);
+    }
+
+    /// <summary>engine 自身が成果物を書く directory は、test の directory の中にあっても同一性に入らないこと</summary>
+    [Test]
+    public async Task Only_the_directory_the_engine_owns_is_left_out_of_the_test_closure()
+    {
+        using var project = new ClosureProject(outputInsideTests: true);
+        var before = project.Compute()!;
+
+        project.WriteOwnedOutput();
+        var afterOwnedOutput = project.Compute();
+
+        await Assert.That(afterOwnedOutput).IsEqualTo(before);
+    }
+
+    /// <summary>engine 自身の directory と名前が前方一致するだけの別の directory は、同一性に入ること</summary>
+    [Test]
+    public async Task A_neighbour_whose_name_only_starts_like_the_owned_directory_is_part_of_the_identity()
+    {
+        using var project = new ClosureProject(outputInsideTests: true);
+        var before = project.Compute()!;
+
+        project.WriteNeighbourOfOwnedDirectory();
+        var after = project.Compute()!;
+
+        await Assert.That(after.Closure).IsNotEqualTo(before.Closure);
+    }
+
+    /// <summary>除外する出力先がテスト assembly を含むときは、不完全な閉包で前回の判定を再利用しないこと</summary>
+    /// <param name="ancestor">テスト directory 自体ではなく、その親を出力先にするか</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task An_output_directory_containing_the_test_assembly_disables_reuse(bool ancestor)
+    {
+        using var project = new ClosureProject();
+        var output = ancestor ? Path.GetDirectoryName(project.TestOutputDirectory)! : project.TestOutputDirectory;
+
+        await Assert.That(project.Compute(outputDirectory: output)).IsNull();
     }
 
     /// <summary>判定に届かない file の変化は、同一性を変えないこと</summary>
@@ -87,6 +152,23 @@ public sealed class CompilationFingerprintFacts
         var before = project.Compute();
 
         project.WriteUnrelatedFile();
+        var after = project.Compute();
+
+        await Assert.That(after).IsEqualTo(before);
+    }
+
+    /// <summary>test の出力に届かない test project の source の変化は、同一性を変えないこと</summary>
+    /// <remarks>
+    /// test は出力された assembly と実行時 data を実行する。source は出力へ届いたときだけ判定に届き、届く変更は test assembly の変化として検出される
+    /// 出力が同一のまま判定だけが変わる source の変化は、出力の外の file や network を読む test に限られ、閉包の範囲の外である
+    /// </remarks>
+    [Test]
+    public async Task A_test_project_source_that_does_not_reach_the_test_output_does_not_change_the_identity()
+    {
+        using var project = new ClosureProject();
+        var before = project.Compute();
+
+        project.WriteTestProjectSource();
         var after = project.Compute();
 
         await Assert.That(after).IsEqualTo(before);
@@ -135,7 +217,7 @@ public sealed class CompilationFingerprintFacts
     }
 
     /// <summary>読めない入力が一つでもあれば、同一性を示せないので不在になること</summary>
-    /// <param name="input">消す入力の名前。test-directory はテスト assembly の directory 自体</param>
+    /// <param name="input">消す入力の名前。test-directory はテスト assembly の directory 自体、worker-directory は worker assembly の directory 自体</param>
     /// <returns>検査の完了</returns>
     [Test]
     [Arguments("source")]
@@ -145,6 +227,9 @@ public sealed class CompilationFingerprintFacts
     [Arguments("analyzer-config")]
     [Arguments("resource")]
     [Arguments("test-directory")]
+    [Arguments("worker-host")]
+    [Arguments("worker-assembly")]
+    [Arguments("worker-directory")]
     public async Task An_input_that_cannot_be_read_gives_no_identity(string input)
     {
         using var project = new ClosureProject();
@@ -155,99 +240,4 @@ public sealed class CompilationFingerprintFacts
         await Assert.That(project.Compute()).IsNull();
     }
 
-    /// <summary>csc の引数が指す実 file と、テスト assembly の directory を持つ検査環境</summary>
-    private sealed class ClosureProject : IDisposable
-    {
-        /// <summary>この環境の一時 directory</summary>
-        private readonly string root = Directory.CreateTempSubdirectory("mutation-closure-facts").FullName;
-
-        /// <summary>入力の名前から実 file の絶対 path への対応</summary>
-        private readonly Dictionary<string, string> inputs;
-
-        /// <summary>全入力の file を初期の内容で置いた環境の作成</summary>
-        public ClosureProject()
-        {
-            inputs = new Dictionary<string, string>
-            {
-                ["source"] = Path.Combine(root, "src", "Target.cs"),
-                ["other-source"] = Path.Combine(root, "src", "Other.cs"),
-                ["reference"] = Path.Combine(root, "refs", "Lib.dll"),
-                ["analyzer"] = Path.Combine(root, "analyzers", "Generator.dll"),
-                ["additional-file"] = Path.Combine(root, "src", "data.txt"),
-                ["analyzer-config"] = Path.Combine(root, ".editorconfig"),
-                ["resource"] = Path.Combine(root, "src", "strings.bin"),
-                ["test-assembly"] = Path.Combine(root, "tests", "bin", "Tests.dll"),
-                ["test-support-file"] = Path.Combine(root, "tests", "bin", "config.json"),
-                ["test-nested-support-file"] = Path.Combine(root, "tests", "bin", "data", "sample.txt"),
-            };
-            foreach (var (name, path) in inputs)
-            {
-                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-                File.WriteAllText(path, $"initial {name}");
-            }
-        }
-
-        /// <summary>閉包の同一性と全体の指紋の計算</summary>
-        public ReuseIdentity? Compute(
-            string settings = "settings",
-            string? extraArgument = null,
-            ChangedLines? changes = null,
-            string selection = ""
-        ) => CompilationFingerprint.Compute(Invocation(extraArgument), inputs["test-assembly"], settings, changes, selection);
-
-        /// <summary>入力の file の内容の変更</summary>
-        public void Change(string input) => File.AppendAllText(inputs[input], " changed");
-
-        /// <summary>入力の file、または test-directory の消去</summary>
-        public void Remove(string input)
-        {
-            if (input == "test-directory")
-            {
-                Directory.Delete(Path.GetDirectoryName(inputs["test-assembly"])!, recursive: true);
-                return;
-            }
-
-            File.Delete(inputs[input]);
-        }
-
-        /// <summary>テストの実行体が成果物を書く directory への file の追加</summary>
-        public void WriteTestResult()
-        {
-            var results = Path.Combine(Path.GetDirectoryName(inputs["test-assembly"])!, "TestResults");
-            Directory.CreateDirectory(results);
-            File.WriteAllText(Path.Combine(results, "run.log"), "log");
-        }
-
-        /// <summary>csc の引数にも、テストの directory にも現れない file の追加</summary>
-        public void WriteUnrelatedFile() => File.WriteAllText(Path.Combine(root, "src", "README.md"), "unrelated");
-
-        /// <summary>一つの入力の変わった行の範囲</summary>
-        public ChangedLines Changes(string input, LineRange range) =>
-            new(new Dictionary<string, IReadOnlyList<LineRange>> { [inputs[input]] = [range] });
-
-        /// <inheritdoc />
-        public void Dispose() => Directory.Delete(root, recursive: true);
-
-        /// <summary>この環境の csc 呼び出し</summary>
-        private CscInvocation Invocation(string? extraArgument)
-        {
-            var arguments = new List<string>
-            {
-                $"/reference:{inputs["reference"]}",
-                $"/analyzer:{inputs["analyzer"]}",
-                $"/additionalfile:{inputs["additional-file"]}",
-                $"/analyzerconfig:{inputs["analyzer-config"]}",
-                $"/resource:{inputs["resource"]},Target.strings",
-                "/out:obj/Target.dll",
-            };
-            if (extraArgument is not null)
-            {
-                arguments.Add(extraArgument);
-            }
-
-            arguments.Add(inputs["source"]);
-            arguments.Add(inputs["other-source"]);
-            return new CscInvocation(Path.Combine(root, "src", "Target.csproj"), arguments, Path.Combine(root, "src", "obj", "Target.dll"));
-        }
-    }
 }

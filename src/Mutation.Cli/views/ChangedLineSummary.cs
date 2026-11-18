@@ -1,4 +1,4 @@
-using Mutation.Verifying.Domain;
+using Mutation.Domain;
 using System.Globalization;
 using System.Text;
 
@@ -30,12 +30,15 @@ public static class ChangedLineSummary
         );
         if (verdicts.Unanalysed.Count > 0)
         {
-            builder.AppendLine(
-                CultureInfo.InvariantCulture,
-                $"未分析の影響範囲 {string.Join(", ", verdicts.Unanalysed)}。この判定は変更行の変異だけの結果で、影響する範囲を含まない"
-            );
+            builder.AppendLine(OmittedImpact(verdicts.Unanalysed));
         }
 
         return builder.ToString();
     }
+
+    /// <summary>判定が含まない影響範囲の一文。確定した判定にも、確定できなかった失敗にも同じ文を添える</summary>
+    /// <param name="unanalysed">変更行の選別が未分析として残した影響の関係と件数</param>
+    /// <returns>未分析の影響範囲を挙げ、判定がそれらを含まないと断る一行</returns>
+    public static string OmittedImpact(IReadOnlyList<string> unanalysed) =>
+        $"未分析の影響範囲 {string.Join(", ", unanalysed)}。この判定は変更行の変異だけの結果で、影響する範囲を含まない";
 }

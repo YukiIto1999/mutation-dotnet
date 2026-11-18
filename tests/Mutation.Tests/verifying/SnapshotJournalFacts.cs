@@ -1,6 +1,5 @@
-using Mutation.Shared;
-using Mutation.Verifying.Domain;
-using Mutation.Verifying.Infrastructure.Snapshot;
+using Mutation.Domain;
+using Mutation.Infrastructure.Snapshot;
 using TUnit.Core;
 
 namespace Mutation.Tests;
@@ -77,7 +76,7 @@ public sealed class SnapshotJournalFacts
         journal.Commit(fixture.Request((0, new MutantVerdict.Killed("a")), (1, new MutantVerdict.Survived()), (2, new MutantVerdict.TimedOut())));
 
         await Assert.That(File.Exists(fixture.JournalPath)).IsFalse();
-        var rebuilt = snapshots.TryRebuild(fixture.SnapshotPath, SnapshotFixture.Fingerprint, fixture.TestAssemblyPath, fixture.MutatedAssemblyPath, "T");
+        var rebuilt = snapshots.TryRebuild(fixture.SnapshotPath, SnapshotFixture.Identity, fixture.TestAssemblyPath, fixture.MutatedAssemblyPath, "T");
         await Assert.That(rebuilt).IsNotNull();
         await Assert.That(rebuilt!.Verdicts[new MutantId(2)]).IsEqualTo(new MutantVerdict.TimedOut());
     }
@@ -93,7 +92,7 @@ public sealed class SnapshotJournalFacts
         journal.Commit(fixture.Request((0, new MutantVerdict.Killed("a")), (1, new MutantVerdict.Survived()), (2, SnapshotFixture.Pending)));
 
         await Assert.That(File.Exists(fixture.JournalPath)).IsFalse();
-        var rebuilt = snapshots.TryRebuild(fixture.SnapshotPath, SnapshotFixture.Fingerprint, fixture.TestAssemblyPath, fixture.MutatedAssemblyPath, "T");
+        var rebuilt = snapshots.TryRebuild(fixture.SnapshotPath, SnapshotFixture.Identity, fixture.TestAssemblyPath, fixture.MutatedAssemblyPath, "T");
         await Assert.That(rebuilt).IsNull();
         await Assert.That(Inherit(fixture, snapshots).Keys.Select(id => id.Value).Order().ToArray()).IsEquivalentTo([0, 1]);
     }
@@ -176,9 +175,47 @@ public sealed class SnapshotJournalFacts
         await Assert.That(Inherit(fixture, snapshots).Keys.Select(id => id.Value).Order().ToArray()).IsEquivalentTo([0, 1, 2]);
     }
 
-    /// <summary>この環境の保存から継承できる判定</summary>
+    /// <summary>閉包の同一性が同じで全体の指紋だけが違う走行が、判定を継承しても、全体を再構築しないこと</summary>
+    /// <remarks>差分運用の範囲だけが違う走行がこれにあたる。対のうち、閉包の同一性が変異ごとの継承を、全体の指紋が全体の再構築を決める</remarks>
+    [Test]
+    public async Task An_identity_with_the_same_closure_and_another_fingerprint_inherits_but_never_rebuilds_in_full()
+    {
+        using var fixture = new SnapshotFixture();
+        var snapshots = new Snapshots();
+        using var journal = snapshots.Begin(fixture.Request((0, SnapshotFixture.Pending), (1, SnapshotFixture.Pending), (2, SnapshotFixture.Pending)));
+        journal.Commit(fixture.Request((0, new MutantVerdict.Killed("a")), (1, new MutantVerdict.Survived()), (2, new MutantVerdict.TimedOut())));
+        var narrowed = SnapshotFixture.Identity with { Fingerprint = "narrower-scope" };
+
+        var rebuilt = snapshots.TryRebuild(fixture.SnapshotPath, narrowed, fixture.TestAssemblyPath, fixture.MutatedAssemblyPath, "T");
+        var inherited = Inherit(fixture, snapshots, narrowed);
+
+        await Assert.That(rebuilt).IsNull();
+        await Assert.That(inherited.Keys.Select(id => id.Value).Order().ToArray()).IsEquivalentTo([0, 1, 2]);
+    }
+
+    /// <summary>再利用の同一性を示せない走行が、全件を確定した保存からも、何も再構築も継承もしないこと</summary>
+    [Test]
+    public async Task Without_an_identity_a_complete_snapshot_is_neither_rebuilt_nor_inherited()
+    {
+        using var fixture = new SnapshotFixture();
+        var snapshots = new Snapshots();
+        using var journal = snapshots.Begin(fixture.Request((0, SnapshotFixture.Pending), (1, SnapshotFixture.Pending), (2, SnapshotFixture.Pending)));
+        journal.Commit(fixture.Request((0, new MutantVerdict.Killed("a")), (1, new MutantVerdict.Survived()), (2, new MutantVerdict.TimedOut())));
+
+        var rebuilt = snapshots.TryRebuild(fixture.SnapshotPath, identity: null, fixture.TestAssemblyPath, fixture.MutatedAssemblyPath, "T");
+        var inherited = Inherit(fixture, snapshots, identity: null);
+
+        await Assert.That(rebuilt).IsNull();
+        await Assert.That(inherited).IsEmpty();
+    }
+
+    /// <summary>この環境の保存から、この環境の再利用の同一性で継承できる判定</summary>
     private static IReadOnlyDictionary<MutantId, MutantVerdict> Inherit(SnapshotFixture fixture, Snapshots snapshots) =>
-        snapshots.Inherit(fixture.SnapshotPath, SnapshotFixture.ClosureIdentity, fixture.Mutants, fixture.TestAssemblyPath, fixture.Coverage, fixture.Roster);
+        Inherit(fixture, snapshots, SnapshotFixture.Identity);
+
+    /// <summary>この環境の保存から、指定の再利用の同一性で継承できる判定</summary>
+    private static IReadOnlyDictionary<MutantId, MutantVerdict> Inherit(SnapshotFixture fixture, Snapshots snapshots, ReuseIdentity? identity) =>
+        snapshots.Inherit(fixture.SnapshotPath, identity, fixture.Mutants, fixture.TestAssemblyPath, fixture.Coverage, fixture.Roster);
 
     /// <summary>file を他の保持と共有せずに開けるか</summary>
     private static bool CanOpenExclusively(string path)

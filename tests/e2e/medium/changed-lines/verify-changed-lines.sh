@@ -78,6 +78,15 @@ check "変更行の未検出は gate で失敗" 2 "$(judge "$base" "$lines_repor
 check "変更行の生存" 1 "$(grep -c '^src/Fixture.Target/Calculator.cs:11:[0-9]* Survived ' "$work/stdout" || true)"
 check "未追跡ファイルの未被覆" 1 "$(grep -c '^src/Fixture.Target/Extra.cs:5:[0-9]* NoCoverage ' "$work/stdout" || true)"
 
+# 変更行の変異が全て Pending で未検出がなければ、合格にも未検出にもならず、判定の外に残った影響範囲を失敗の説明に添える
+pending_report="$work/pending-report.json"
+jq '.files |= map_values(.mutants |= map(.status = "Pending"))
+  | .run.selection = [{target: "Fixture.Target", scope: "changed-lines", reasons: [], unanalysed: [{relation: "test-changed", paths: ["tests/CalculatorTests.cs"]}]}]' \
+  "$lines_report" > "$pending_report"
+check "Pending だけの変更行の終了コード" 1 "$(judge "$base" "$pending_report")"
+check "Pending だけの失敗の説明" 1 "$(grep -c '判定が確定しておらず' "$work/stderr" || true)"
+check "Pending だけの失敗に残る未分析の影響範囲" 1 "$(grep -c '^未分析の影響範囲 Fixture.Target: test-changed 1 件' "$work/stderr" || true)"
+
 if dotnet "$cli" run \
   --project "$work/src/Fixture.Target/Fixture.Target.csproj" \
   --test-project "$work/src/Fixture.Target.Tests/Fixture.Target.Tests.csproj" \
@@ -119,6 +128,7 @@ dotnet "$cli" run \
   --since "$empty_base" --changed-lines --output "$work/out-empty" > "$work/run-empty.log" 2>&1 \
   || { echo "FAIL run with zero mutants"; tail -20 "$work/run-empty.log"; exit 1; }
 check "変異不能行の生成 0 件" 0 "$(jq '.counters.mutants' "$work/out-empty/reports/timings.json")"
+check "変異不能行の走行は全件の判定が確定した完了" completed "$(jq -r '.run.state' "$work/out-empty/reports/mutation-report.json")"
 check "変異不能行の gate 成功" 0 "$(judge "$empty_base" "$work/out-empty/reports/mutation-report.json")"
 
 # commit 済みのファイルを内容を変えずに移動すると、移動先の全行が変わった行になり、生成と gate の両方が拾う
@@ -138,5 +148,23 @@ check "移動したファイルの全行の生成" "$(calculator_mutants "$work/
   "$(calculator_mutants "$work/out-moved/reports/mutation-report.json")"
 check "移動したファイルの未検出は gate で失敗" 2 "$(judge "$moved_base" "$work/out-moved/reports/mutation-report.json")"
 check "移動したファイルの生存" 1 "$(grep -c '^src/Fixture.Target/moved/Calculator.cs:11:[0-9]* Survived ' "$work/stdout" || true)"
+
+# build が失敗した走行は、同じ出力の成功した報告を失敗の報告に置き換え、その報告は変更行の合格にならない
+printf 'this does not compile\n' > "$work/src/Fixture.Target/Broken.cs"
+if dotnet "$cli" run \
+  --project "$work/src/Fixture.Target/Fixture.Target.csproj" \
+  --test-project "$work/src/Fixture.Target.Tests/Fixture.Target.Tests.csproj" \
+  --since "$moved_base" --changed-lines --output "$work/out-moved" > "$work/run-broken.log" 2>&1; then
+  check "build が失敗する run が失敗" 1 0
+else
+  check "build が失敗する run の終了コード" 1 "$?"
+fi
+rm "$work/src/Fixture.Target/Broken.cs"
+broken_report="$work/out-moved/reports/mutation-report.json"
+check "build の失敗で置き換わった報告の状態" failed "$(jq -r '.run.state' "$broken_report")"
+check "build の失敗で置き換わった報告は完了でない" false "$(jq '.run.complete' "$broken_report")"
+check "build の失敗で置き換わった報告に前の変異が残らない" 0 "$(jq '[.files[].mutants[]] | length' "$broken_report")"
+check "失敗した走行の報告は gate の合格にならない" 1 "$(judge "$moved_base" "$broken_report")"
+check "失敗した走行の報告の説明" 1 "$(grep -c '失敗した走行の報告' "$work/stderr" || true)"
 
 exit "$fail"

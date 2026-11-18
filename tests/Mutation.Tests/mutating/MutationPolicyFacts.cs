@@ -1,9 +1,8 @@
 
 
-using Mutation.Mutating.Domain;
-using Mutation.Shared;
-using Mutation.Mutating.Infrastructure.Roslyn.Operators;
-using Mutation.Mutating.Infrastructure.Roslyn;
+using Mutation.Domain;
+using Mutation.Infrastructure.Roslyn.Operators;
+using Mutation.Infrastructure.Roslyn;
 using TUnit.Core;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;

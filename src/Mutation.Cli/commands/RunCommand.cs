@@ -1,7 +1,5 @@
-
-
-
-using Mutation.Verifying.Domain;
+using Mutation.Application;
+using Mutation.Domain;
 using Mutation.Composition;
 
 namespace Mutation.Cli.Commands;
@@ -59,25 +57,17 @@ public static class RunCommand
         }
 
         var resolved = concurrency > 0 ? concurrency : Math.Max(1, Environment.ProcessorCount / 2);
-        var options = new MutationRunOptions(
-            [.. project.Zip(testProject, (p, t) => new TargetSpec(Path.GetFullPath(p), Path.GetFullPath(t)))],
-            configuration,
-            resolved,
-            validateSurvivors,
-            excludeStatic,
-            mutate ?? [],
-            since,
-            changedLines,
-            ignoreOperators ?? [],
-            ignoreMethods ?? [],
+        var request = new RunRequest(
+            [.. project.Zip(testProject, (p, t) => new TargetProjects(Path.GetFullPath(p), Path.GetFullPath(t), configuration))],
+            new MutationSelection(mutate ?? [], since, changedLines, ignoreOperators ?? [], ignoreMethods ?? []),
+            new ExecutionSettings(resolved, validateSurvivors, excludeStatic, detectionMatrix),
             Path.GetFullPath(output),
-            withBaseline,
-            detectionMatrix
+            withBaseline
         );
         using var termination = new TerminationSignals();
         var outcome = await BuildCore
             .Create()
-            .RunAsync(options, p => Console.Error.WriteLine(ProgressLines.Describe(p)), termination.Token)
+            .Run.ExecuteAsync(request, p => Console.Error.WriteLine(ProgressLines.Describe(p)), termination.Token)
             .ConfigureAwait(false);
         if (outcome.IsFailed(out var failed, out var result))
         {

@@ -1,7 +1,6 @@
-using Mutation.Mutating.Infrastructure;
-using Mutation.Verifying.Domain;
-using Mutation.Verifying.Infrastructure.Snapshot;
-using Mutation.Shared;
+using Mutation.Infrastructure;
+using Mutation.Domain;
+using Mutation.Infrastructure.Snapshot;
 using TUnit.Core;
 
 namespace Mutation.Tests;

@@ -1,7 +1,6 @@
 using System.Text.Json;
-using Mutation.Shared;
-using Mutation.Verifying.Domain;
-using Mutation.Verifying.Infrastructure.Reports;
+using Mutation.Domain;
+using Mutation.Infrastructure.Reports;
 using TUnit.Core;
 
 namespace Mutation.Tests;
@@ -108,8 +107,7 @@ public sealed class StrykerReportFacts
         var selection = new CandidateSelection(
             new SelectionScope.ExplicitSubset(),
             [new ImpactReason(new ImpactRelation.ProductionChanged(), ["/repo/src/A.cs"])],
-            [new ImpactReason(new ImpactRelation.TestChanged(), ["/repo/tests/ATests.cs", "/repo/tests/BTests.cs"])],
-            ["/repo/docs/guide.md"]
+            [new ImpactReason(new ImpactRelation.TestChanged(), ["/repo/tests/ATests.cs", "/repo/tests/BTests.cs"])]
         );
         var target = new TargetResult(
             "T",

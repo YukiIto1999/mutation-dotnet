@@ -1,4 +1,4 @@
-using Mutation.Mutating.Infrastructure.Roslyn;
+using Mutation.Infrastructure.Roslyn;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 using TUnit.Core;

@@ -8,10 +8,10 @@ public static class ChangedLinesCommand
     /// <summary>`run --since` の報告からの、変わった行に重なる変異の取り出しと未検出の有無の判定</summary>
     /// <param name="report">-r, `run` が書き出した mutation-report.json の path</param>
     /// <param name="since">差分の基点になる git の参照。`run` の `--since` に渡したものと同じ値</param>
-    /// <returns>未検出が無ければ 0、報告か差分を得られなければ 1、未検出があれば 2</returns>
+    /// <returns>未検出が無ければ 0、報告か差分を得られない、未検出が無く判定を確定できなかった変異が変わった行にある、または止まった走行の報告で合否の根拠にならないなら 1、未検出があれば 2</returns>
     public static async Task<int> Run(string report, string since)
     {
-        var outcome = BuildCore.Create().OnChangedLines(Path.GetFullPath(report), since);
+        var outcome = BuildCore.Create().ChangedLines.Execute(Path.GetFullPath(report), since);
         if (outcome.IsFailed(out var failed, out var verdicts))
         {
             await Console.Error.WriteLineAsync(FailureLines.Describe(failed.Failure)).ConfigureAwait(false);

@@ -63,7 +63,6 @@ run_since unknown
 check "関係不明な変更の範囲" full-production "$(scope unknown)"
 check "関係不明な変更の候補" 17 "$(mutants unknown)"
 check "関係不明な変更の関係" unknown-input "$(reasons unknown)"
-check "関係不明な変更を対象外にしない" 0 "$(jq '.run.selection[0].notInputs | length' "$(report unknown)")"
 rm "$work/guide.md"
 
 printf '\n// transitive dependency changed\n' >> "$work/src/Fixture.Transitive/Marker.cs"

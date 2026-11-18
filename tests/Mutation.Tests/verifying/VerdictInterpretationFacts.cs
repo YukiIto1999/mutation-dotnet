@@ -1,7 +1,7 @@
 
 
-using Mutation.Verifying.Domain;
-using Mutation.Verifying.Infrastructure.Workers;
+using Mutation.Domain;
+using Mutation.Infrastructure.Workers;
 using Mutation.Protocol;
 using TUnit.Core;
 

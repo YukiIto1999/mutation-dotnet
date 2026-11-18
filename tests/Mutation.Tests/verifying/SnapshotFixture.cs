@@ -1,6 +1,5 @@
-using Mutation.Shared;
-using Mutation.Verifying.Application;
-using Mutation.Verifying.Domain;
+using Mutation.Domain;
+using Mutation.Application;
 
 namespace Mutation.Tests;
 
@@ -19,6 +18,9 @@ internal sealed class SnapshotFixture : IDisposable
 
     /// <summary>入力の閉包の同一性として保存に添える値</summary>
     public const string ClosureIdentity = "closure";
+
+    /// <summary>生成入力の指紋と入力の閉包の同一性の対として保存に添える値</summary>
+    public static ReuseIdentity Identity { get; } = new(ClosureIdentity, Fingerprint);
 
     /// <summary>変異三件を持つ環境の作成</summary>
     public SnapshotFixture()
@@ -76,8 +78,7 @@ internal sealed class SnapshotFixture : IDisposable
             Mutants,
             verdicts.ToDictionary(pair => new MutantId(pair.Id), pair => pair.Verdict),
             Baseline,
-            Fingerprint,
-            ClosureIdentity,
+            Identity,
             TestAssemblyPath,
             MutatedAssemblyPath,
             new HashSet<MutantId>(),
@@ -85,7 +86,7 @@ internal sealed class SnapshotFixture : IDisposable
         );
 
     /// <summary>worker の起動情報。判定の検査では起動しないので path だけを持つ</summary>
-    public WorkerLaunchPlan Launch => new("worker.dll", TestAssemblyPath, directory, "Target", directory);
+    public WorkerLaunchPlan Launch => new(new WorkerHost("host", "worker.dll"), TestAssemblyPath, directory, "Target", directory);
 
     /// <summary>未判定の三件目までを置いた保存の内容に使う未判定</summary>
     public static MutantVerdict Pending => new MutantVerdict.Unjudged(new UnjudgedCause.NotRun());

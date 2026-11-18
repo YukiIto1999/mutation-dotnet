@@ -1,7 +1,6 @@
-using Mutation.Shared;
-using Mutation.Verifying.Application;
-using Mutation.Verifying.Domain;
-using Mutation.Verifying.Infrastructure.Reports;
+using Mutation.Domain;
+using Mutation.Application;
+using Mutation.Infrastructure.Reports;
 using TUnit.Core;
 using TypeModeling.Domain;
 
@@ -99,6 +98,55 @@ public sealed class RecordedReportFacts
             .IsTrue();
     }
 
+    /// <summary>取り消しではない失敗で止まった走行の報告が、失敗で判定に至らなかった対象を名指す失敗の記録として読み戻されること</summary>
+    [Test]
+    public async Task Failed_run_state_reads_back_with_its_failed_targets()
+    {
+        var parsed = StrykerReport.Parse(ReportWithRun("""{ "state": "failed", "complete": false, "failedTargets": ["Broken"], "interruptedTargets": [] }"""), "report.json");
+
+        await Assert.That(!parsed.IsFailed(out _, out var report) && report.Run is RecordedRun.Failed { Targets: ["Broken"] }).IsTrue();
+    }
+
+    /// <summary>取り消しで止まった走行の報告が、取り消しで判定に至らなかった対象を名指す中断の記録として読み戻されること</summary>
+    [Test]
+    public async Task Interrupted_run_state_reads_back_with_its_interrupted_targets()
+    {
+        var parsed = StrykerReport.Parse(ReportWithRun("""{ "state": "interrupted", "complete": false, "failedTargets": [], "interruptedTargets": ["Later"] }"""), "report.json");
+
+        await Assert.That(!parsed.IsFailed(out _, out var report) && report.Run is RecordedRun.Interrupted { Targets: ["Later"] }).IsTrue();
+    }
+
+    /// <summary>全対象の判定に至った走行の報告が、未判定の変異の有無によらず終えた走行の記録として読み戻されること</summary>
+    [Test]
+    [Arguments("completed")]
+    [Arguments("unjudged")]
+    public async Task Finished_run_states_read_back_as_a_finished_run(string state)
+    {
+        var parsed = StrykerReport.Parse(ReportWithRun($$"""{ "state": "{{state}}", "complete": false }"""), "report.json");
+
+        await Assert.That(!parsed.IsFailed(out _, out var report) && report.Run is RecordedRun.Finished).IsTrue();
+    }
+
+    /// <summary>この道具が走行の状態を書かなかった報告が、終えた走行とは別に、走行の記録を持たない報告として読み戻されること</summary>
+    [Test]
+    [Arguments("""{ "files": {}, "projectRoot": "/repo" }""")]
+    [Arguments("""{ "files": {}, "projectRoot": "/repo", "run": { "selection": [] } }""")]
+    public async Task Report_without_a_run_state_reads_back_without_a_run_record(string json)
+    {
+        var parsed = StrykerReport.Parse(json, "report.json");
+
+        await Assert.That(!parsed.IsFailed(out _, out var report) && report.Run is null).IsTrue();
+    }
+
+    /// <summary>この道具が書かない走行の状態を持つ報告が、終えた走行と取り違えられず、その状態を名指した読めない報告として失敗すること</summary>
+    [Test]
+    public async Task Unknown_run_state_makes_the_report_unreadable()
+    {
+        var parsed = StrykerReport.Parse(ReportWithRun("""{ "state": "paused" }"""), "report.json");
+
+        await Assert.That(ReasonOf(parsed)).Contains("paused");
+    }
+
     /// <summary>読めない報告の失敗の理由。読めた場合や別の失敗なら不在</summary>
     private static string? ReasonOf(Result<RecordedReport, PipelineFailure> parsed) =>
         parsed.IsFailed(out var failed, out _)
@@ -111,5 +159,11 @@ public sealed class RecordedReportFacts
         $$"""
         { "schemaVersion": "2", "thresholds": { "high": 80, "low": 60 }, "projectRoot": "/repo",
           "files": { "src/A.cs": { "language": "cs", "source": "", "mutants": [ {{mutants}} ] } } }
+        """;
+
+    /// <summary>projectRoot が /repo で、変異を持たず、run の欄が指定の内容の報告</summary>
+    private static string ReportWithRun(string run) =>
+        $$"""
+        { "schemaVersion": "2", "projectRoot": "/repo", "run": {{run}}, "files": {} }
         """;
 }

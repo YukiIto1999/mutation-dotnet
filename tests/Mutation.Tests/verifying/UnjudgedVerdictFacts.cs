@@ -1,5 +1,4 @@
-using Mutation.Shared;
-using Mutation.Verifying.Domain;
+using Mutation.Domain;
 using TUnit.Core;
 
 namespace Mutation.Tests;

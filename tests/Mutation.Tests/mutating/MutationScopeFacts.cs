@@ -1,5 +1,5 @@
 
-using Mutation.Mutating.Domain;
+using Mutation.Domain;
 using TUnit.Core;
 
 namespace Mutation.Tests;
