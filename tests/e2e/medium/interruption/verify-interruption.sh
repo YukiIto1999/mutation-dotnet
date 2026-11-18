@@ -35,6 +35,7 @@ check() {
   fi
 }
 
+# bash の exec は `_` を更新しないため、通常起動と再開の環境同一性がずれないよう dotnet の path に固定する。
 run_cli() {
   exec env _="$(command -v dotnet)" dotnet "$cli" run --project "$projects" --test-project "$tests" --concurrency 1 "$@"
 }

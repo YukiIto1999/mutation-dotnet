@@ -52,11 +52,6 @@ run_cli identical
 check "継承を求めずに保存した同じ入力も全体を再利用する" 1 "$(matched identical)"
 check "再利用した判定は最初の走行と同じ" "" "$(diff "$work/first.settled" <(settled) || true)"
 
-MUTATION_E2E_REUSE_ENV="${MUTATION_E2E_REUSE_ENV-}:changed" run_cli environment
-check "環境変数を変えた走行は全体を再利用しない" 0 "$(matched environment)"
-check "環境変数を変えた走行は判定を継承しない" 1 "$(none_inherited environment)"
-check "環境変数を変えた走行の継承の件数" 0 "$(inherited environment)"
-
 # shellcheck disable=SC2016
 sed -i 's|</PropertyGroup>|  <DefineConstants>$(DefineConstants);REUSE_PROBE</DefineConstants>\n  </PropertyGroup>|' "$work/Directory.Build.props"
 run_cli configured
@@ -82,5 +77,11 @@ check "テストを変えた走行は判定を継承しない" 1 "$(none_inherit
 run_cli validating --validate-survivors
 check "実行設定を変えた走行は全体を再利用しない" 0 "$(matched validating)"
 check "実行設定を変えた走行は判定を継承しない" 1 "$(none_inherited validating)"
+
+# 直前の実行設定を保ち、設定差だけで不一致になる誤検知を避けて環境差を検査する。
+MUTATION_E2E_REUSE_ENV="${MUTATION_E2E_REUSE_ENV-}:changed" run_cli environment --validate-survivors
+check "環境変数を変えた走行は全体を再利用しない" 0 "$(matched environment)"
+check "環境変数を変えた走行は判定を継承しない" 1 "$(none_inherited environment)"
+check "環境変数を変えた走行の継承の件数" 0 "$(inherited environment)"
 
 exit "$fail"
