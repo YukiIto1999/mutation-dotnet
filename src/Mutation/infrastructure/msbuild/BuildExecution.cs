@@ -1,4 +1,5 @@
 using Mutation.Domain;
+using Mutation.Infrastructure.Dotnet;
 using System.Diagnostics;
 using System.Text;
 using System.Xml.Linq;
@@ -46,9 +47,7 @@ public static class BuildExecution
         var binlogPath = Path.Combine(workDirectory, binlogName);
         var startInfo = new ProcessStartInfo
         {
-            FileName = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") is { Length: > 0 } dotnetHost
-                ? dotnetHost
-                : Environment.ProcessPath ?? "dotnet",
+            FileName = DotnetHost.Resolve(),
             RedirectStandardOutput = true,
             RedirectStandardError = true,
         };

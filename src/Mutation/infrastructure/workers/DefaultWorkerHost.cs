@@ -1,4 +1,5 @@
 using Mutation.Domain;
+using Mutation.Infrastructure.Dotnet;
 
 namespace Mutation.Infrastructure.Workers;
 
@@ -9,12 +10,11 @@ public static class DefaultWorkerHost
     private const string DllFileName = "Mutation.Worker.dll";
 
     /// <summary>この process の環境と配置から決めた host 実行体と worker assembly の組</summary>
+    /// <remarks>明示した host を優先し、apphost 自身を dotnet host として再起動しない</remarks>
     /// <returns>走行の間使う host。環境を読むのはここだけで、読んだ後の値は変わらない</returns>
     public static WorkerHost Resolve() =>
         new(
-            Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") is { Length: > 0 } dotnetHost
-                ? dotnetHost
-                : Environment.ProcessPath ?? "dotnet",
+            DotnetHost.Resolve(),
             Path.Combine(AppContext.BaseDirectory, DllFileName)
         );
 }

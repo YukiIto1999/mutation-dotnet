@@ -38,6 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Untracked files are collected from the repository root rather than the production project's directory, so new tests, shared inputs and runtime fixtures outside that directory participate in `--since` selection.
 - A global build failure replaces stale successful reports with `failed`, `complete: false` and all failed target names before returning the original failure; cancellation still takes precedence.
 - The changed-line gate refuses explicitly failed or interrupted runs even when no mutant was generated, rejects unknown run states, and retains omitted-impact diagnostics on failure.
+- Direct apphost launches resolve a shared dotnet host for both MSBuild and workers rather than recursively launching the CLI.
+  The existing verdict-category E2E now starts the apphost with `DOTNET_HOST_PATH` unset.
 
 ### Added
 

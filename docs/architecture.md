@@ -18,6 +18,7 @@ build は全対象をまとめて一度行い、csc の呼び出しが binlog �
 対象の csc 引数とテスト assembly の実行時 path は、`infrastructure/msbuild/TargetLocation.cs` が binlog から取り出す。
 同じ project の csc 呼び出しが binlog に複数あるときは、最後の一回だけを採る。
 所在は `infrastructure/msbuild/BinlogCompilations.cs` の `Read` である。
+build と worker の dotnet host の所在は `infrastructure/dotnet/DotnetHost.cs` が解決し、CLI の apphost 自体を再起動しない。
 
 対象は順に処理し、対象の間は並列にしない。
 対象一件の準備や検査が失敗しても、その対象を `TargetOutcome.Failed` として記録して残りの対象を続け、終了コードは 1 になる。
