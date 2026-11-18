@@ -7,7 +7,11 @@ repo_root="$(cd "$fixture_dir/../../../.." && pwd)"
 output_dir="${1:-$fixture_dir/.mutation-output}"
 cli="$repo_root/src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll"
 
-dotnet "$cli" run \
+# apphost 自身を build や worker の dotnet host と誤認する経路を検査するため、SDK が渡す host path は外す。
+# Nix の runtime は既定の探索先に無いので、導入済みの .NET 10 の所在を apphost へ渡す。
+runtime="$(dotnet --list-runtimes | awk '$1 == "Microsoft.NETCore.App" && $2 ~ /^10\./ {gsub(/\[|\]/, "", $3); print $3 "/../.."; exit}')"
+test -n "$runtime"
+env -u DOTNET_HOST_PATH DOTNET_ROOT="$(realpath "$runtime")" "${cli%.dll}" run \
   --project "$fixture_dir/Fixture.Target/Fixture.Target.csproj" \
   --test-project "$fixture_dir/Fixture.Target.Tests/Fixture.Target.Tests.csproj" \
   --output "$output_dir"

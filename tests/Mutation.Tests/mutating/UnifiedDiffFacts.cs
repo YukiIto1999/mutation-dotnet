@@ -1,5 +1,5 @@
-using Mutation.Mutating.Infrastructure.Git;
-using Mutation.Shared;
+using Mutation.Infrastructure.Git;
+using Mutation.Domain;
 using TUnit.Core;
 
 namespace Mutation.Tests;

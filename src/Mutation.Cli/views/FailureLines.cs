@@ -1,4 +1,4 @@
-using Mutation.Shared;
+using Mutation.Domain;
 
 
 
@@ -23,7 +23,24 @@ public static class FailureLines
             PipelineFailure.ReportUnreadable unreadable =>
                 $"{unreadable.ReportPath} を変異検査の報告として読めない: {unreadable.Reason}",
             PipelineFailure.Interrupted => "取り消しを受けて止まった",
-            PipelineFailure.UnjudgedOnChangedLines unjudged =>
-                $"変わった行の変異 {unjudged.Count} 件の判定が確定しておらず、未検出の有無を決められない(途中で止まった走行か、競合で遅れた timeout の報告)",
+            PipelineFailure.UnjudgedOnChangedLines unjudged => Unjudged(unjudged),
+            PipelineFailure.ReportOfFailedRun failedRun =>
+                $"{failedRun.ReportPath} は判定に至らなかった対象を残して失敗した走行の報告で、変わった行の合否の根拠にならない{Targets(failedRun.Targets)}。失敗の原因を直して `run` をやり直す",
+            PipelineFailure.ReportOfInterruptedRun interruptedRun =>
+                $"{interruptedRun.ReportPath} は取り消しを受けて止まった走行の報告で、変わった行の合否の根拠にならない{Targets(interruptedRun.Targets)}。`run --with-baseline` で全対象の判定を確定させる",
         };
+
+    /// <summary>変わった行の判定を確定できなかった失敗の説明。未分析の影響範囲があれば、判定がそれを含まないことも添える</summary>
+    private static string Unjudged(PipelineFailure.UnjudgedOnChangedLines unjudged)
+    {
+        var headline =
+            $"変わった行の変異 {unjudged.Count} 件の判定が確定しておらず、未検出の有無を決められない(途中で止まった走行か、競合で遅れた timeout か、test runner の失敗の報告)";
+        return unjudged.Unanalysed.Count == 0
+            ? headline
+            : $"{headline}\n{ChangedLineSummary.OmittedImpact(unjudged.Unanalysed)}";
+    }
+
+    /// <summary>根拠にならない報告の走行で、判定に至らなかった対象の添え書き。対象がなければ空</summary>
+    private static string Targets(IReadOnlyList<string> targets) =>
+        targets.Count == 0 ? "" : $"(判定に至らなかった対象: {string.Join(", ", targets)})";
 }

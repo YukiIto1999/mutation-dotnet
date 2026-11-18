@@ -1,4 +1,4 @@
-using Mutation.Mutating.Infrastructure.Git;
+using Mutation.Infrastructure.Git;
 using TUnit.Core;
 
 namespace Mutation.Tests;

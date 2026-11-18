@@ -1,4 +1,4 @@
-using Mutation.Mutating.Infrastructure.Git;
+using Mutation.Infrastructure.Git;
 using System.Diagnostics;
 
 namespace Mutation.Tests;
@@ -22,6 +22,9 @@ public sealed partial class ChangedLinesGateFacts
 
         /// <summary>Killed の変異を検出したことにするテスト名</summary>
         private static readonly string[] KillerTests = ["Suite.Test"];
+
+        /// <summary>未分析として報告するテスト file</summary>
+        private static readonly string[] ChangedTestPaths = ["tests/ATests.cs"];
 
         /// <summary>root からの相対 path の絶対化</summary>
         public string PathOf(string relative) => Path.GetFullPath(Path.Combine(Root, relative));
@@ -55,7 +58,29 @@ public sealed partial class ChangedLinesGateFacts
         public async Task DeleteRefAsync(string reference) => await GitAsync("update-ref", "-d", reference);
 
         /// <summary>root を projectRoot にした互換 schema の報告の書き込みと、その path</summary>
-        public async Task<string> WriteReportAsync(params (string File, string Id, int Line, string Status)[] mutants)
+        public Task<string> WriteReportAsync(params (string File, string Id, int Line, string Status)[] mutants) =>
+            WriteRecordedAsync(null, mutants);
+
+        /// <summary>`--since --changed-lines` の全対象が判定に至った走行が、テストの変更を未分析として残した報告の書き込みと、その path</summary>
+        public Task<string> WriteReportLeavingTestsUnanalysedAsync(params (string File, string Id, int Line, string Status)[] mutants) =>
+            WriteRecordedAsync(
+                new
+                {
+                    state = "unjudged",
+                    selection = new[]
+                    {
+                        new
+                        {
+                            target = "T",
+                            unanalysed = new[] { new { relation = "test-changed", paths = ChangedTestPaths } },
+                        },
+                    },
+                },
+                mutants
+            );
+
+        /// <summary>run の欄があれば添えた、root を projectRoot にした互換 schema の報告の書き込みと、その path</summary>
+        private async Task<string> WriteRecordedAsync(object? run, (string File, string Id, int Line, string Status)[] mutants)
         {
             var files = mutants
                 .GroupBy(mutant => mutant.File)
@@ -80,9 +105,15 @@ public sealed partial class ChangedLinesGateFacts
                         }).ToArray(),
                     }
                 );
+            var report = new Dictionary<string, object> { ["projectRoot"] = Root, ["files"] = files };
+            if (run is not null)
+            {
+                report["run"] = run;
+            }
+
             var path = PathOf("out/mutation-report.json");
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            await File.WriteAllTextAsync(path, System.Text.Json.JsonSerializer.Serialize(new { projectRoot = Root, files }));
+            await File.WriteAllTextAsync(path, System.Text.Json.JsonSerializer.Serialize(report));
             return path;
         }
 

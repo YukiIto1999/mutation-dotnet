@@ -1,0 +1,45 @@
+using Mutation.Domain;
+using System.Diagnostics;
+
+namespace Mutation.Application;
+
+/// <summary>一回の実行で段階と対象を跨いで共有する文脈</summary>
+/// <param name="Request">一回の変異検査の入力</param>
+/// <param name="Layout">出力 directory 配下の置き場の取り決め</param>
+/// <param name="Host">この実行が worker を起動する host。再利用の同一性を捕捉した値と同じで、全対象の起動情報に使う</param>
+/// <param name="Progress">進行を伝える通知先</param>
+/// <param name="Clock">段階と全体の所要時間の計測</param>
+/// <param name="Cancellation">取り消しの要求</param>
+internal sealed record PipelineSession(
+    RunRequest Request,
+    RunLayout Layout,
+    WorkerHost Host,
+    Action<RunProgress> Progress,
+    PhaseClock Clock,
+    CancellationToken Cancellation
+);
+
+/// <summary>段階と全体の所要時間の計測</summary>
+public sealed class PhaseClock
+{
+    /// <summary>開始からの全体時間の計測</summary>
+    private readonly Stopwatch total = Stopwatch.StartNew();
+
+    /// <summary>現在の段階の時間の計測</summary>
+    private readonly Stopwatch phase = Stopwatch.StartNew();
+
+    /// <summary>開始からの経過時間</summary>
+    public double TotalMs => total.Elapsed.TotalMilliseconds;
+
+    /// <summary>現在の段階の締めと所要時間の取得。次の段階が始まる</summary>
+    /// <returns>締めた段階の所要時間</returns>
+    public double EndPhase()
+    {
+        var ms = phase.Elapsed.TotalMilliseconds;
+        phase.Restart();
+        return ms;
+    }
+
+    /// <summary>途中の計測の破棄と次の段階の開始</summary>
+    public void StartPhase() => phase.Restart();
+}

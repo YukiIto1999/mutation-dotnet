@@ -20,7 +20,7 @@
     {
       "id": "S3776-002",
       "rule": "structure/tests/methods.md「構造の検証」: 関数の複雑さは、分岐の構造を数える尺度で linter が関数ごとに測り、値が 15 を超えたら不合格とする。languages/csharp/sonaranalyzer-csharp.md「予防」: S3776",
-      "file": "src/Mutation/mutating/infrastructure/roslyn/operators/RelationalPatternSafety.cs",
+      "file": "src/Mutation/infrastructure/roslyn/operators/RelationalPatternSafety.cs",
       "line": 16,
       "symbol": "RelationalPatternSafety.IsSafeReplacement(SyntaxNode, int, SyntaxKind, SemanticModel)",
       "evidence": "SonarAnalyzer S3776 が認知的複雑度 17 を報告する(上限 15)",

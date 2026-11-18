@@ -1,10 +1,9 @@
 using System.Diagnostics;
 using System.Text.Json;
 using Mutation.Protocol;
-using Mutation.Shared;
-using Mutation.Verifying.Application;
-using Mutation.Verifying.Domain;
-using Mutation.Verifying.Infrastructure.Workers;
+using Mutation.Domain;
+using Mutation.Application;
+using Mutation.Infrastructure.Workers;
 
 namespace Mutation.Tests;
 
@@ -71,7 +70,7 @@ internal sealed class ScriptedWorkerRun : IDisposable
         var answers = script.ToDictionary(entry => entry.Key, entry => entry.Answer);
         File.WriteAllText(Path.Combine(directory, ScriptFileName), JsonSerializer.Serialize(answers, Serializer));
         launch = new WorkerLaunchPlan(
-            Path.Combine(AppContext.BaseDirectory, WorkerAssembly),
+            DefaultWorkerHost.Resolve() with { DllPath = Path.Combine(AppContext.BaseDirectory, WorkerAssembly) },
             Path.Combine(directory, "Scripted.Tests.dll"),
             directory,
             "Scripted.Target",

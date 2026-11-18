@@ -1,6 +1,6 @@
 
-using Mutation.Mutating.Infrastructure.Roslyn.Operators;
-using Mutation.Mutating.Infrastructure.Roslyn;
+using Mutation.Infrastructure.Roslyn.Operators;
+using Mutation.Infrastructure.Roslyn;
 using TUnit.Core;
 
 namespace Mutation.Tests;

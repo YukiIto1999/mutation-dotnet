@@ -1,6 +1,5 @@
-using Mutation.Shared;
-using Mutation.Verifying.Application;
-using Mutation.Verifying.Domain;
+using Mutation.Domain;
+using Mutation.Application;
 using TypeModeling.Domain;
 
 namespace Mutation.Tests;
@@ -21,6 +20,9 @@ internal sealed class FakePipeline : IMutantSource, IWorkerRuns, ISnapshots, IVe
 
     /// <summary>既定の基準実行の観測。変異の一覧が決まってから組み立てる</summary>
     private BaselineProfile? baseline;
+
+    /// <summary>host を読まれた回数</summary>
+    private int hostReads;
 
     /// <summary>対象 project の名前を決めた検査環境</summary>
     /// <param name="names">対象 project の名前の列</param>
@@ -48,8 +50,20 @@ internal sealed class FakePipeline : IMutantSource, IWorkerRuns, ISnapshots, IVe
     /// <summary>計画から、実行の結果への対応。既定は計画の全変異を検出</summary>
     public Func<IReadOnlyList<MutantPlan>, OrchestrationResult>? OnExecute { get; init; }
 
-    /// <summary>準備が受けた指紋の設定。呼び出しごとに一つ</summary>
-    public List<string?> Fingerprinted { get; } = [];
+    /// <summary>変異の一覧から、前回の保存から継承する判定への対応。既定は継承なし</summary>
+    public Func<IReadOnlyList<Mutant>, IReadOnlyDictionary<MutantId, MutantVerdict>>? OnInherit { get; init; }
+
+    /// <summary>準備が受けた実行の制御と worker の host。呼び出しごとに一つ</summary>
+    public List<(ExecutionSettings Execution, WorkerHost Host)> Prepared { get; } = [];
+
+    /// <summary>基準実行と変異の実行が受けた起動情報。呼び出しごとに一つ</summary>
+    public List<WorkerLaunchPlan> Launches { get; } = [];
+
+    /// <summary>この環境が worker を起動する host。読むたびに別の値を返すので、走行が一度だけ読んで使い回すかを見分けられる</summary>
+    public WorkerHost Host => new("/host/dotnet", $"/worker-{++hostReads}/Mutation.Worker.dll");
+
+    /// <summary>host を読まれた回数</summary>
+    public int HostReads => hostReads;
 
     /// <summary>変異を生成した対象の名前</summary>
     public List<string> Generated { get; } = [];
@@ -68,8 +82,8 @@ internal sealed class FakePipeline : IMutantSource, IWorkerRuns, ISnapshots, IVe
 
     /// <summary>対象の指定の列</summary>
     /// <returns>対象 project の名前ごとの指定</returns>
-    public IReadOnlyList<TargetRequest> TargetRequests() =>
-        names.Select(name => new TargetRequest($"/work/{name}/{name}.csproj", $"/work/{name}/{name}.Tests.csproj", "Debug")).ToArray();
+    public IReadOnlyList<TargetProjects> TargetRequests() =>
+        names.Select(name => new TargetProjects($"/work/{name}/{name}.csproj", $"/work/{name}/{name}.Tests.csproj", "Debug")).ToArray();
 
     /// <summary>この環境の代役を全ての port に使った workflow</summary>
     public RunMutationTesting Workflow => new(this, new VerifyMutants(this, this), this, this, this);
@@ -113,45 +127,33 @@ internal sealed class FakePipeline : IMutantSource, IWorkerRuns, ISnapshots, IVe
             new Dictionary<MutantId, DetectionRow>()
         );
 
-    /// <summary>この環境の対象を検査する要求。指紋は継承を使うときだけ添える</summary>
+    /// <summary>この環境の対象を検査する要求。同一性へ畳む設定は継承を使うかによらず添える</summary>
     /// <param name="withBaseline">前回実行の保存から判定を継承するか</param>
     /// <param name="execution">実行と判定の制御。既定は一本の lane で再検証なし</param>
     /// <returns>変異対象を絞らない一回の検査の入力</returns>
     public RunRequest Request(bool withBaseline = false, ExecutionSettings? execution = null) =>
         new(
             TargetRequests(),
-            new SelectionRequest([], null, false, [], []),
+            new MutationSelection([], null, false, [], []),
             execution ?? new ExecutionSettings(1, false, false, false),
-            withBaseline ? "settings" : null,
             "/out",
             withBaseline
         );
 
     /// <inheritdoc />
     public Task<Result<IReadOnlyList<Result<PreparedTarget, PipelineFailure>>, PipelineFailure>> PrepareAsync(
-        IReadOnlyList<TargetRequest> targets,
-        SelectionRequest selection,
+        IReadOnlyList<TargetProjects> targets,
+        MutationSelection selection,
         string workDirectory,
-        string? fingerprintSettings
+        ExecutionSettings execution,
+        WorkerHost host
     )
     {
-        Fingerprinted.Add(fingerprintSettings);
-        var prepared = targets
-            .Zip(names)
-            .Select(pair => PreparedOf(pair.First, pair.Second, fingerprintSettings))
-            .ToList();
+        Prepared.Add((execution, host));
+        var prepared = targets.Zip(names).Select(pair => PreparedOf(pair.First, pair.Second)).ToList();
         Result<IReadOnlyList<Result<PreparedTarget, PipelineFailure>>, PipelineFailure> succeeded =
             Result.Succeeded<IReadOnlyList<Result<PreparedTarget, PipelineFailure>>>(prepared);
         return Task.FromResult(succeeded);
-    }
-
-    /// <inheritdoc />
-    public Result<GeneratedMutants, PipelineFailure> Generate(PreparedTarget target, string mutatedDirectory)
-    {
-        Generated.Add(target.TargetAssemblyName);
-        return Result.Succeeded(
-            new GeneratedMutants(Mutants, CompileErrors, Path.Combine(mutatedDirectory, target.TargetAssemblyName + ".dll"), 0, 0)
-        );
     }
 
     /// <inheritdoc />
@@ -161,6 +163,7 @@ internal sealed class FakePipeline : IMutantSource, IWorkerRuns, ISnapshots, IVe
         CancellationToken cancellation
     )
     {
+        Launches.Add(launch);
         Observed.Add(launch.TargetAssemblyName);
         Result<BaselineProfile, PipelineFailure> observed = OnObserve is { } behavior
             ? behavior(launch.TargetAssemblyName)
@@ -179,6 +182,7 @@ internal sealed class FakePipeline : IMutantSource, IWorkerRuns, ISnapshots, IVe
         ExecutionControl control
     )
     {
+        Launches.Add(launch);
         Executed.Add(plans);
         return Task.FromResult(OnExecute is { } behavior ? behavior(plans) : Detecting(plans));
     }
@@ -186,7 +190,7 @@ internal sealed class FakePipeline : IMutantSource, IWorkerRuns, ISnapshots, IVe
     /// <inheritdoc />
     public TargetResult? TryRebuild(
         string snapshotPath,
-        string? fingerprint,
+        ReuseIdentity? identity,
         string testAssemblyPath,
         string mutatedAssemblyPath,
         string targetName
@@ -199,6 +203,7 @@ internal sealed class FakePipeline : IMutantSource, IWorkerRuns, ISnapshots, IVe
     /// <inheritdoc />
     public IReadOnlyDictionary<MutantId, MutantVerdict> Inherit(
         string snapshotPath,
+        ReuseIdentity? identity,
         IReadOnlyList<Mutant> mutants,
         string testAssemblyPath,
         CoverageMap coverage,
@@ -206,7 +211,7 @@ internal sealed class FakePipeline : IMutantSource, IWorkerRuns, ISnapshots, IVe
     )
     {
         Inherited++;
-        return new Dictionary<MutantId, MutantVerdict>();
+        return OnInherit is { } behavior ? behavior(mutants) : new Dictionary<MutantId, MutantVerdict>();
     }
 
     /// <inheritdoc />
@@ -230,9 +235,32 @@ internal sealed class FakePipeline : IMutantSource, IWorkerRuns, ISnapshots, IVe
     public static OrchestrationResult Verdicts(IReadOnlyList<MutantPlan> plans, Func<MutantPlan, MutantVerdict> verdict) =>
         new(plans.ToDictionary(plan => plan.MutantId, verdict), [], 0, new Dictionary<MutantId, DetectionRow>());
 
-    /// <summary>準備に成功した対象一件</summary>
-    private static Result<PreparedTarget, PipelineFailure> PreparedOf(TargetRequest request, string name, string? fingerprint) =>
-        Result.Succeeded(new PreparedTarget(request, $"/work/{name}/{name}.Tests.dll", name, fingerprint));
+    /// <summary>準備に成功した対象一件。再利用の同一性は対象の名前から決まる値</summary>
+    private Result<PreparedTarget, PipelineFailure> PreparedOf(TargetProjects request, string name) =>
+        Result.Succeeded<PreparedTarget>(new FakePreparedTarget(this, request, name));
+
+    /// <summary>この検査環境の対象一件の変異生成</summary>
+    /// <param name="Owner">検査環境</param>
+    /// <param name="Request">対象の指定</param>
+    /// <param name="TargetAssemblyName">対象の名前</param>
+    private sealed record FakePreparedTarget(FakePipeline Owner, TargetProjects Request, string TargetAssemblyName)
+        : PreparedTarget(
+            Request,
+            $"/work/{TargetAssemblyName}/{TargetAssemblyName}.Tests.dll",
+            TargetAssemblyName,
+            new ReuseIdentity($"closure:{TargetAssemblyName}", $"fingerprint:{TargetAssemblyName}"),
+            null
+        )
+    {
+        /// <inheritdoc />
+        public override Result<MutatedArtifact, PipelineFailure> Generate(string mutatedDirectory)
+        {
+            Owner.Generated.Add(TargetAssemblyName);
+            return Result.Succeeded(
+                new MutatedArtifact(Owner.Mutants, Owner.CompileErrors, Path.Combine(mutatedDirectory, TargetAssemblyName + ".dll"), 0, 0)
+            );
+        }
+    }
 
     /// <summary>追記を受け流し 保存もしない判定の記録</summary>
     private sealed class SilentJournal : IVerdictJournal

@@ -1,6 +1,7 @@
 using Mutation.Composition;
-using Mutation.Mutating.Infrastructure.Git;
-using Mutation.Shared;
+using Mutation.Infrastructure.Git;
+using Mutation.Domain;
+using Mutation.Infrastructure.Reports;
 using TUnit.Core;
 
 namespace Mutation.Tests;
@@ -25,7 +26,7 @@ public sealed partial class ChangedLinesGateFacts
             ("src/sub/New.cs", "New:1", 1, "NoCoverage")
         );
 
-        var outcome = BuildCore.Create().OnChangedLines(report, baseRef);
+        var outcome = BuildCore.Create().ChangedLines.Execute(report, baseRef);
 
         await Assert.That(outcome.IsFailed(out _, out var verdicts)).IsFalse();
         await Assert.That(verdicts!.OnChangedLines.Select(m => m.Id).ToArray()).IsEquivalentTo(["A:2", "A:2k", "New:1"]);
@@ -66,7 +67,7 @@ public sealed partial class ChangedLinesGateFacts
             ("src/A.cs", "unchanged", 6, "Survived")
         );
 
-        var outcome = BuildCore.Create().OnChangedLines(report, baseRef);
+        var outcome = BuildCore.Create().ChangedLines.Execute(report, baseRef);
 
         await Assert.That(outcome.IsFailed(out _, out var verdicts)).IsFalse();
         await Assert.That(verdicts!.Undetected.Select(mutant => mutant.Id).ToArray())
@@ -89,7 +90,7 @@ public sealed partial class ChangedLinesGateFacts
             ("src/moved/Edited.cs", "edited-elsewhere", 9, "NoCoverage")
         );
 
-        var outcome = BuildCore.Create().OnChangedLines(report, baseRef);
+        var outcome = BuildCore.Create().ChangedLines.Execute(report, baseRef);
 
         await Assert.That(outcome.IsFailed(out _, out var verdicts)).IsFalse();
         await Assert.That(verdicts!.Undetected.Select(mutant => mutant.Id).ToArray())
@@ -105,7 +106,7 @@ public sealed partial class ChangedLinesGateFacts
         await repo.CommitAllAsync();
         var report = await repo.WriteReportAsync(("src/A.cs", "A:1", 1, "Survived"));
 
-        var outcome = BuildCore.Create().OnChangedLines(report, "no-such-ref");
+        var outcome = BuildCore.Create().ChangedLines.Execute(report, "no-such-ref");
 
         var reason = outcome.IsFailed(out var failed, out _)
             && failed.Failure is PipelineFailure.SinceUnavailable { Reason: var text }
@@ -123,7 +124,7 @@ public sealed partial class ChangedLinesGateFacts
         await repo.CommitAllAsync();
         var report = await repo.WriteReportAsync(("src/A.cs", "A:1", 1, "Survived"));
 
-        var outcome = BuildCore.Create().OnChangedLines(report, "--cached");
+        var outcome = BuildCore.Create().ChangedLines.Execute(report, "--cached");
 
         await Assert.That(outcome.IsFailed(out var failed, out _) && failed.Failure is PipelineFailure.SinceUnavailable)
             .IsTrue();
@@ -135,7 +136,7 @@ public sealed partial class ChangedLinesGateFacts
     {
         using var repo = await TempRepository.CreateAsync();
 
-        var outcome = BuildCore.Create().OnChangedLines(repo.PathOf("missing.json"), "HEAD");
+        var outcome = BuildCore.Create().ChangedLines.Execute(repo.PathOf("missing.json"), "HEAD");
 
         await Assert.That(outcome.IsFailed(out var failed, out _) && failed.Failure is PipelineFailure.ReportUnreadable)
             .IsTrue();
@@ -151,10 +152,78 @@ public sealed partial class ChangedLinesGateFacts
         await repo.WriteAsync("src/A.cs", "one\nchanged\n");
         var report = await repo.WriteReportAsync(("src/A.cs", "A:2", 2, "Pending"), ("src/A.cs", "A:1", 1, "Survived"));
 
-        var outcome = BuildCore.Create().OnChangedLines(report, baseRef);
+        var outcome = BuildCore.Create().ChangedLines.Execute(report, baseRef);
 
         await Assert.That(outcome.IsFailed(out var failed, out _) && failed.Failure is PipelineFailure.UnjudgedOnChangedLines { Count: 1 })
             .IsTrue();
+    }
+
+    /// <summary>未分析の影響範囲を残した報告で、変わった行が Pending だけのとき、判定できない失敗がその影響範囲を残すこと</summary>
+    [Test]
+    public async Task Pending_only_changed_lines_keep_the_unanalysed_scope_in_the_failure()
+    {
+        using var repo = await TempRepository.CreateAsync();
+        await repo.WriteAsync("src/A.cs", "one\ntwo\n");
+        var baseRef = await repo.CommitAllAsync();
+        await repo.WriteAsync("src/A.cs", "one\nchanged\n");
+        var report = await repo.WriteReportLeavingTestsUnanalysedAsync(("src/A.cs", "A:2", 2, "Pending"), ("src/A.cs", "A:1", 1, "Survived"));
+
+        var outcome = BuildCore.Create().ChangedLines.Execute(report, baseRef);
+
+        await Assert.That(outcome.IsFailed(out var failed, out _) && failed.Failure is PipelineFailure.UnjudgedOnChangedLines { Count: 1, Unanalysed: ["T: test-changed 1 件"] })
+            .IsTrue();
+    }
+
+    /// <summary>準備に失敗した走行が書いた報告が、変異を持たなくても、変わった行の合格にならず、失敗した対象を名指す失敗になること</summary>
+    [Test]
+    public async Task Report_written_for_a_failed_run_is_not_a_pass()
+    {
+        using var repo = await TempRepository.CreateAsync();
+        await repo.WriteAsync("src/A.cs", "one\ntwo\n");
+        var baseRef = await repo.CommitAllAsync();
+        await repo.WriteAsync("src/A.cs", "one\nchanged\n");
+        var report = WriteRunReport(
+            repo,
+            new TargetOutcome.Failed("T", new PipelineFailure.BuildFailed("error CS0001"), 0)
+        );
+
+        var outcome = BuildCore.Create().ChangedLines.Execute(report, baseRef);
+
+        await Assert.That(outcome.IsFailed(out var failed, out _) && failed.Failure is PipelineFailure.ReportOfFailedRun { Targets: ["T"] })
+            .IsTrue();
+    }
+
+    /// <summary>全対象が判定に至り、変異を一件も生成しなかった走行が書いた報告が、変異のない正当な結果として、変わった行の合格になること</summary>
+    [Test]
+    public async Task Report_written_for_a_complete_run_without_mutants_is_a_pass()
+    {
+        using var repo = await TempRepository.CreateAsync();
+        await repo.WriteAsync("src/A.cs", "one\ntwo\n");
+        var baseRef = await repo.CommitAllAsync();
+        await repo.WriteAsync("src/A.cs", "one\nchanged\n");
+        var empty = new TargetResult(
+            "T",
+            [],
+            new Dictionary<MutantId, MutantVerdict>(),
+            [],
+            TargetTimings.None,
+            [],
+            0,
+            new Dictionary<MutantId, DetectionRow>()
+        );
+        var report = WriteRunReport(repo, new TargetOutcome.Completed(empty));
+
+        var outcome = BuildCore.Create().ChangedLines.Execute(report, baseRef);
+
+        await Assert.That(!outcome.IsFailed(out _, out var verdicts) && verdicts.OnChangedLines.Count == 0).IsTrue();
+    }
+
+    /// <summary>この道具の報告の書き出しで、指定の帰結を持つ走行の報告を repository の root を基準に書いた、その path</summary>
+    private static string WriteRunReport(TempRepository repo, params TargetOutcome[] outcomes)
+    {
+        var directory = repo.PathOf("run-report");
+        ReportBundle.Write(new MutationRunResult(outcomes, new PhaseTimings(0, 0, 0, 0, 0, 0)), repo.Root, directory);
+        return Path.Combine(directory, "mutation-report.json");
     }
 
     /// <summary>git が移動の前後を対にできるほど似た、語と行番号を並べた 10 行</summary>

@@ -1,7 +1,5 @@
-using Mutation.Composition;
-using Mutation.Shared;
-using Mutation.Verifying.Application;
-using Mutation.Verifying.Domain;
+using Mutation.Domain;
+using Mutation.Application;
 using TUnit.Core;
 using TypeModeling.Domain;
 
@@ -28,42 +26,23 @@ public sealed class MutationTestingBaselineFacts
     )
     {
         var pipeline = new FakePipeline("Only");
-        var operation = new MutationTesting(pipeline.Workflow, new JudgeChangedLines(new UnusedReports(), new UnusedChanges()));
-        var target = pipeline.TargetRequests().Single();
-        var options = new MutationRunOptions(
-            [new TargetSpec(target.ProjectPath, target.TestProjectPath)],
-            "Debug",
-            1,
-            false,
-            false,
-            [],
-            null,
-            false,
-            [],
-            [],
-            "/out",
-            withBaseline,
-            detectionMatrix
-        );
 
-        var run = await operation.RunAsync(options, _ => { });
+        var run = await RunAsync(pipeline, withBaseline, detectionMatrix);
 
         await Assert.That(run.IsFailed(out _, out _)).IsFalse();
         await Assert.That(pipeline.Consulted.Count > 0).IsEqualTo(reads);
         await Assert.That(pipeline.Inherited > 0).IsEqualTo(reads);
     }
 
-    /// <summary>この検査では使わない報告の読み戻し</summary>
-    private sealed class UnusedReports : IRecordedReports
+    /// <summary>一対象を一本の lane で走らせる設定での一回の変異検査</summary>
+    private static async Task<Result<MutationRunResult, PipelineFailure>> RunAsync(
+        FakePipeline pipeline,
+        bool withBaseline,
+        bool detectionMatrix
+    )
     {
-        /// <inheritdoc />
-        public Result<RecordedReport, PipelineFailure> Read(string reportPath) => throw new NotSupportedException();
+        var request = pipeline.Request(withBaseline, new ExecutionSettings(1, false, false, detectionMatrix));
+        return await pipeline.Workflow.ExecuteAsync(request, _ => { });
     }
 
-    /// <summary>この検査では使わない変わった行の解決</summary>
-    private sealed class UnusedChanges : IChangedLines
-    {
-        /// <inheritdoc />
-        public Result<ChangedLines, PipelineFailure> Resolve(string directory, string sinceRef) => throw new NotSupportedException();
-    }
 }

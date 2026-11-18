@@ -1,30 +1,29 @@
-using Mutation.Mutating.Application;
-using Mutation.Mutating.Infrastructure;
-using Mutation.Mutating.Infrastructure.Git;
-using Mutation.Mutating.Infrastructure.Msbuild;
-using Mutation.Mutating.Infrastructure.Roslyn;
-using Mutation.Verifying.Application;
-using Mutation.Verifying.Infrastructure.Reports;
-using Mutation.Verifying.Infrastructure.Snapshot;
-using Mutation.Verifying.Infrastructure.Workers;
+using Mutation.Application;
+using Mutation.Infrastructure;
+using Mutation.Infrastructure.Git;
+using Mutation.Infrastructure.Msbuild;
+using Mutation.Infrastructure.Roslyn;
+using Mutation.Infrastructure.Reports;
+using Mutation.Infrastructure.Snapshot;
+using Mutation.Infrastructure.Workers;
 
 namespace Mutation.Composition;
 
-/// <summary>文脈の adapter を port へ配線して組み立て済みの API を返す、core の組立点</summary>
+/// <summary>変異検査の公開 application 入口と外部依存の組み立て</summary>
 public static class BuildCore
 {
     /// <summary>全 adapter の配線と公開 operation の組み立て</summary>
     /// <returns>外部へ公開する変異検査の operation</returns>
-    public static MutationTesting Create()
+    public static MutationApi Create()
     {
         var workerRuns = new WorkerRuns();
         var snapshots = new Snapshots();
-        var mutantSource = new MutantSourceFromMutating(
+        var mutantSource = new MutationSource(
             new PrepareTarget(new BinlogBuilds(), new TargetLocations()),
             new GenerateMutants(new MutationCompilation(), new ChangeSets()),
             new Fingerprints()
         );
-        return new MutationTesting(
+        return new MutationApi(
             new RunMutationTesting(
                 mutantSource,
                 new VerifyMutants(workerRuns, snapshots),

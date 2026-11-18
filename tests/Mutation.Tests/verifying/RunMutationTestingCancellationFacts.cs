@@ -1,6 +1,5 @@
-using Mutation.Shared;
-using Mutation.Verifying.Application;
-using Mutation.Verifying.Domain;
+using Mutation.Domain;
+using Mutation.Application;
 using TUnit.Core;
 using TypeModeling.Domain;
 

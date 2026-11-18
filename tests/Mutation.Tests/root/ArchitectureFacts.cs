@@ -1,54 +1,55 @@
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using TUnit.Core;
 
 namespace Mutation.Tests;
 
-/// <summary>文脈の隔離・層の依存方向・単位構造の機械検査</summary>
+/// <summary>単一の core の層の依存方向と配置の検査</summary>
 public sealed class ArchitectureFacts
 {
-    /// <summary>Mutation package 直下の文脈の一覧</summary>
-    private static readonly string[] Contexts = ["mutating", "verifying"];
+    /// <summary>全境界の検査で共有する source と参照 assembly の意味モデル</summary>
+    private static readonly Lazy<CSharpCompilation> Compilation = new(CreateCompilation);
 
-    /// <summary>文脈が互いと composition を参照しないこと</summary>
+    /// <summary>型と namespace の参照が層の境界を逆流しないこと</summary>
     [Test]
-    public async Task Contexts_stay_ignorant_of_each_other()
+    [Arguments("src/Mutation/domain", "Mutation.Application,Mutation.Infrastructure,Mutation.Composition,Mutation.Protocol")]
+    [Arguments("src/Mutation/application", "Mutation.Infrastructure,Mutation.Composition,Mutation.Protocol")]
+    [Arguments("src/Mutation/infrastructure", "Mutation.Composition")]
+    [Arguments("src/Mutation/infrastructure/workers/protocol", "Mutation.Domain,Mutation.Application,Mutation.Infrastructure,Mutation.Composition")]
+    [Arguments("src/Mutation.Cli", "Mutation.Infrastructure")]
+    public async Task Dependencies_respect_the_core_boundary(string scope, string forbiddenNamespaces)
     {
-        var offending = new (string Context, string Forbidden)[]
+        var forbidden = forbiddenNamespaces.Split(',');
+        var root = RootedPath(scope) + Path.DirectorySeparatorChar;
+        var violations = new List<string>();
+        foreach (var tree in Compilation.Value.SyntaxTrees.Where(tree => tree.FilePath.StartsWith(root, StringComparison.Ordinal)))
         {
-            ("mutating", "Mutation.Verifying"),
-            ("verifying", "Mutation.Mutating"),
-            ("mutating", "Mutation.Composition"),
-            ("verifying", "Mutation.Composition"),
+            var model = Compilation.Value.GetSemanticModel(tree);
+            var syntaxRoot = await tree.GetRootAsync();
+            foreach (var node in syntaxRoot.DescendantNodes().OfType<NameSyntax>())
+            {
+                var symbol = model.GetSymbolInfo(node).Symbol;
+                var ns = (symbol as INamespaceSymbol ?? symbol?.ContainingNamespace)?.ToDisplayString();
+                if (ns is not null && forbidden.Any(prefix => ns == prefix || ns.StartsWith(prefix + ".", StringComparison.Ordinal)))
+                {
+                    violations.Add($"{tree.FilePath}:{node.GetLocation().GetLineSpan().StartLinePosition.Line + 1}: {ns}");
+                }
+            }
         }
-            .SelectMany(rule =>
-                SourcesUnder(Path.Combine("src", "Mutation", rule.Context))
-                    .Where(f => File.ReadAllText(f).Contains(rule.Forbidden, StringComparison.Ordinal))
-            )
-            .ToArray();
-        await Assert.That(offending).IsEmpty();
+
+        await Assert.That(violations).IsEmpty();
     }
 
-    /// <summary>各文脈の domain が application と infrastructure を参照しないこと</summary>
+    /// <summary>core が業務モデルを分割した shared kernel を持たず、一つの文脈の層だけを持つこと</summary>
     [Test]
-    public async Task Domain_depends_on_nothing_above()
+    public async Task Core_contains_one_context()
     {
-        var offending = Contexts
-            .SelectMany(context => SourcesUnder(Path.Combine("src", "Mutation", context, "domain")))
-            .Where(f => File.ReadAllText(f) is { } s
-                && (s.Contains(".Application", StringComparison.Ordinal)
-                    || s.Contains(".Infrastructure", StringComparison.Ordinal)))
+        string[] allowed = ["domain", "application", "infrastructure", "composition", "bin", "obj"];
+        var unexpected = Directory.EnumerateDirectories(RootedPath("src/Mutation"))
+            .Where(path => !allowed.Contains(Path.GetFileName(path), StringComparer.Ordinal))
             .ToArray();
-        await Assert.That(offending).IsEmpty();
-    }
-
-    /// <summary>各文脈の application が infrastructure を参照しないこと(依存は infrastructure → application)</summary>
-    [Test]
-    public async Task Application_does_not_reach_into_infrastructure()
-    {
-        var offending = Contexts
-            .SelectMany(context => SourcesUnder(Path.Combine("src", "Mutation", context, "application")))
-            .Where(f => File.ReadAllText(f).Contains(".Infrastructure", StringComparison.Ordinal))
-            .ToArray();
-        await Assert.That(offending).IsEmpty();
+        await Assert.That(unexpected).IsEmpty();
     }
 
     /// <summary>domain と application の直下が規範の単位フォルダだけで構成されること</summary>
@@ -60,16 +61,14 @@ public sealed class ArchitectureFacts
             ["domain"] = ["aggregates", "values", "events", "services"],
             ["application"] = ["usecases", "workflows", "ports"],
         };
-        var offending = Contexts
-            .SelectMany(context => units.SelectMany(layer =>
-            {
-                var path = RootedPath(Path.Combine("src", "Mutation", context, layer.Key));
-                var looseFiles = Directory.EnumerateFiles(path, "*.cs", SearchOption.TopDirectoryOnly);
-                var strangeFolders = Directory.EnumerateDirectories(path)
-                    .Where(d => !layer.Value.Contains(Path.GetFileName(d), StringComparer.Ordinal));
-                return looseFiles.Concat(strangeFolders);
-            }))
-            .ToArray();
+        var offending = units.SelectMany(layer =>
+        {
+            var path = RootedPath(Path.Combine("src", "Mutation", layer.Key));
+            var looseFiles = Directory.EnumerateFiles(path, "*.cs", SearchOption.TopDirectoryOnly);
+            var strangeFolders = Directory.EnumerateDirectories(path)
+                .Where(directory => !layer.Value.Contains(Path.GetFileName(directory), StringComparer.Ordinal));
+            return looseFiles.Concat(strangeFolders);
+        }).ToArray();
         await Assert.That(offending).IsEmpty();
     }
 
@@ -77,48 +76,24 @@ public sealed class ArchitectureFacts
     [Test]
     public async Task Project_roots_hold_only_entry_points()
     {
-        var roots = new[]
-        {
-            Path.Combine("src", "Mutation"),
-            Path.Combine("src", "Mutation.Cli"),
-            Path.Combine("src", "Mutation.Worker"),
-            Path.Combine("tests", "Mutation.Tests"),
-        };
+        string[] roots = ["src/Mutation", "src/Mutation.Cli", "src/Mutation.Worker", "tests/Mutation.Tests"];
         var offending = roots
             .SelectMany(root => Directory.EnumerateFiles(RootedPath(root), "*.cs", SearchOption.TopDirectoryOnly))
-            .Where(f => Path.GetFileName(f) != "Program.cs")
+            .Where(file => Path.GetFileName(file) != "Program.cs")
             .ToArray();
         await Assert.That(offending).IsEmpty();
     }
 
-    /// <summary>shared kernel がどの文脈にも依存しないこと</summary>
-    [Test]
-    public async Task Shared_kernel_depends_on_no_context()
+    /// <summary>実際の型参照を解決するための、製品 source と実行中の参照 assembly による compilation</summary>
+    private static CSharpCompilation CreateCompilation()
     {
-        var offending = SourcesUnder(Path.Combine("src", "Mutation", "shared"))
-            .Where(f => File.ReadAllText(f).Contains("using Mutation.", StringComparison.Ordinal))
-            .ToArray();
-        await Assert.That(offending).IsEmpty();
-    }
-
-    /// <summary>protocol がどの境界にも依存しないこと</summary>
-    [Test]
-    public async Task Protocol_depends_on_nothing()
-    {
-        var offending = SourcesUnder(Path.Combine("src", "Mutation", "protocol"))
-            .Where(f => File.ReadAllText(f).Contains("using Mutation", StringComparison.Ordinal))
-            .ToArray();
-        await Assert.That(offending).IsEmpty();
-    }
-
-    /// <summary>Cli が infrastructure へ届かないこと</summary>
-    [Test]
-    public async Task Console_surface_uses_only_the_operations()
-    {
-        var offending = SourcesUnder(Path.Combine("src", "Mutation.Cli"))
-            .Where(f => File.ReadAllText(f).Contains(".Infrastructure", StringComparison.Ordinal))
-            .ToArray();
-        await Assert.That(offending).IsEmpty();
+        var trees = SourcesUnder("src/Mutation").Concat(SourcesUnder("src/Mutation.Cli"))
+            .Select(path => CSharpSyntaxTree.ParseText(File.ReadAllText(path), path: path));
+        var trusted = ((string?)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
+        var references = trusted.Concat(Directory.EnumerateFiles(AppContext.BaseDirectory, "*.dll"))
+            .Distinct(StringComparer.Ordinal)
+            .Select(path => MetadataReference.CreateFromFile(path));
+        return CSharpCompilation.Create("ArchitectureBoundary", trees, references);
     }
 
     /// <summary>repo root からの相対 path の絶対化</summary>
@@ -133,13 +108,9 @@ public sealed class ArchitectureFacts
         return Path.Combine(root, relative);
     }
 
-    /// <summary>repo root からの相対での source の列挙</summary>
-    private static IEnumerable<string> SourcesUnder(string relative)
-    {
-        return Directory
-            .EnumerateFiles(RootedPath(relative), "*.cs", SearchOption.AllDirectories)
-            .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
-                && !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
-                && !f.Contains($"{Path.DirectorySeparatorChar}tests{Path.DirectorySeparatorChar}", StringComparison.Ordinal));
-    }
+    /// <summary>生成物を除く製品 source の列挙</summary>
+    private static IEnumerable<string> SourcesUnder(string relative) =>
+        Directory.EnumerateFiles(RootedPath(relative), "*.cs", SearchOption.AllDirectories)
+            .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+                && !path.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal));
 }

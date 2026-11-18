@@ -1,5 +1,5 @@
-using Mutation.Mutating.Domain;
-using Mutation.Mutating.Infrastructure.Roslyn;
+using Mutation.Domain;
+using Mutation.Infrastructure.Roslyn;
 using Microsoft.CodeAnalysis.CSharp;
 
 using TUnit.Core;

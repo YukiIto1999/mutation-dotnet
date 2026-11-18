@@ -1,7 +1,6 @@
 using System.Text.Json;
-using Mutation.Shared;
-using Mutation.Verifying.Domain;
-using Mutation.Verifying.Infrastructure.Reports;
+using Mutation.Domain;
+using Mutation.Infrastructure.Reports;
 using TUnit.Core;
 
 namespace Mutation.Tests;
@@ -62,6 +61,32 @@ public sealed class RunStateReportFacts
         await Assert.That(timings.GetProperty("counters").GetProperty("byStatus").TryGetProperty("Pending", out _)).IsFalse();
     }
 
+    /// <summary>test runner の失敗が、Pending と理由つきで報告に残り、検出に数えられず、score の母数に入らず、走行を unjudged にすること</summary>
+    [Test]
+    public async Task Runner_failure_is_reported_pending_with_its_reason_and_stays_out_of_the_score()
+    {
+        var verdicts = new MutantVerdict[]
+        {
+            new MutantVerdict.Killed("Calc.Add"),
+            new MutantVerdict.Survived(),
+            new MutantVerdict.Unjudged(new UnjudgedCause.RunnerFailure("the test host did not open: no host\n   at Host.Open()")),
+        };
+
+        var (report, timings) = await WriteAsync(Result(verdicts));
+
+        var mutants = report.GetProperty("files").GetProperty("src/A.cs").GetProperty("mutants").EnumerateArray().ToArray();
+        await Assert.That(mutants.Select(m => m.GetProperty("status").GetString()!).ToArray())
+            .IsEquivalentTo(["Killed", "Survived", "Pending"]);
+        await Assert.That(mutants[2].GetProperty("statusReason").GetString())
+            .IsEqualTo(
+                "Unjudged: the test runner failed, so no test result exists for this mutant; it is not counted as detected (the test host did not open: no host)"
+            );
+        await AssertRunAsync(report.GetProperty("run"), "unjudged", unjudged: 1, notRun: 0, interrupted: 0, contended: 0, runnerFailure: 1);
+        await AssertRunAsync(timings.GetProperty("run"), "unjudged", unjudged: 1, notRun: 0, interrupted: 0, contended: 0, runnerFailure: 1);
+        await Assert.That(report.GetProperty("run").GetProperty("complete").GetBoolean()).IsFalse();
+        await Assert.That(timings.GetProperty("counters").GetProperty("score").GetDouble()).IsEqualTo(0.5);
+    }
+
     /// <summary>取り消しで判定に至らなかった対象の名前が run に残ること</summary>
     [Test]
     public async Task Targets_abandoned_by_the_interruption_are_named_in_the_run_record()
@@ -83,8 +108,43 @@ public sealed class RunStateReportFacts
             .IsEqualTo("Interrupted");
     }
 
+    /// <summary>取り消しではない失敗で判定に至らなかった対象が、run を failed かつ complete でないものにし、名前を failedTargets に残すこと</summary>
+    [Test]
+    public async Task Targets_that_failed_before_judgement_are_named_and_the_run_is_not_complete()
+    {
+        var result = new MutationRunResult(
+            [
+                new TargetOutcome.Completed(Target([new MutantVerdict.Killed("Calc.Add")])),
+                new TargetOutcome.Failed("Broken", new PipelineFailure.BuildFailed("error CS0001"), 0),
+            ],
+            new PhaseTimings(0, 0, 0, 0, 0, 0)
+        );
+
+        var (report, timings) = await WriteAsync(result);
+
+        foreach (var run in new[] { report.GetProperty("run"), timings.GetProperty("run") })
+        {
+            await Assert.That(run.GetProperty("state").GetString()).IsEqualTo("failed");
+            await Assert.That(run.GetProperty("complete").GetBoolean()).IsFalse();
+            await Assert.That(run.GetProperty("failedTargets").EnumerateArray().Select(e => e.GetString()!).ToArray())
+                .IsEquivalentTo(["Broken"]);
+            await Assert.That(run.GetProperty("interruptedTargets").GetArrayLength()).IsEqualTo(0);
+        }
+
+        await Assert.That(timings.GetProperty("targets").EnumerateArray().Last().GetProperty("reason").GetString())
+            .IsEqualTo("BuildFailed");
+    }
+
     /// <summary>run の記録が、状態と未判定の内訳を持つこと</summary>
-    private static async Task AssertRunAsync(JsonElement run, string state, int unjudged, int notRun, int interrupted, int contended)
+    private static async Task AssertRunAsync(
+        JsonElement run,
+        string state,
+        int unjudged,
+        int notRun,
+        int interrupted,
+        int contended,
+        int runnerFailure = 0
+    )
     {
         await Assert.That(run.GetProperty("state").GetString()).IsEqualTo(state);
         await Assert.That(run.GetProperty("unjudged").GetInt32()).IsEqualTo(unjudged);
@@ -92,6 +152,7 @@ public sealed class RunStateReportFacts
         await Assert.That(by.GetProperty("notRun").GetInt32()).IsEqualTo(notRun);
         await Assert.That(by.GetProperty("interrupted").GetInt32()).IsEqualTo(interrupted);
         await Assert.That(by.GetProperty("contendedTimeout").GetInt32()).IsEqualTo(contended);
+        await Assert.That(by.GetProperty("runnerFailure").GetInt32()).IsEqualTo(runnerFailure);
     }
 
     /// <summary>判定を連番順に持つ一対象の走行結果</summary>

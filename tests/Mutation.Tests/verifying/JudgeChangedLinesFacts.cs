@@ -1,13 +1,12 @@
-using Mutation.Shared;
-using Mutation.Verifying.Application;
-using Mutation.Verifying.Domain;
+using Mutation.Domain;
+using Mutation.Application;
 using TUnit.Core;
 using TypeModeling.Domain;
 
 namespace Mutation.Tests;
 
 /// <summary>報告と差分の port を制御した、変わった行の判定の use-case の検査</summary>
-public sealed class JudgeChangedLinesFacts
+public sealed partial class JudgeChangedLinesFacts
 {
     /// <summary>報告に記録された、10 行目で生存と 20 行目で生存の二件</summary>
     private static readonly RecordedReport Report = new(
@@ -84,6 +83,21 @@ public sealed class JudgeChangedLinesFacts
             .IsTrue();
     }
 
+    /// <summary>未判定だけが変わった行にあり合否を決められないときも、報告が未分析にした影響の関係が失敗に残ること</summary>
+    [Test]
+    public async Task Indeterminate_gate_keeps_the_unanalysed_scope_of_the_report()
+    {
+        var judge = JudgeWithUnanalysed(
+            ["Target: test-changed 1 件"],
+            new RecordedMutant("T:1", Path.GetFullPath("/repo/A.cs"), new SourceSpan(10, 1, 10, 2), "M", "r", new MutantVerdict.Unjudged(new UnjudgedCause.NotRun()))
+        );
+
+        var outcome = judge.Execute("report.json", "base-ref");
+
+        await Assert.That(outcome.IsFailed(out var failed, out _) && failed.Failure is PipelineFailure.UnjudgedOnChangedLines { Count: 1, Unanalysed: ["Target: test-changed 1 件"] })
+            .IsTrue();
+    }
+
     /// <summary>未検出が変わった行にあれば、未判定が別にあっても未検出で合否が決まること</summary>
     [Test]
     public async Task Undetected_mutant_decides_the_gate_even_when_others_are_unjudged()
@@ -114,10 +128,53 @@ public sealed class JudgeChangedLinesFacts
         await Assert.That(verdicts!.OnChangedLines.Select(m => m.Id).ToArray()).IsEquivalentTo(["T:1"]);
     }
 
+    /// <summary>報告が未分析として残した影響の関係が、合格の判定にも添えられ、判定が影響する範囲を含まないことを示せること</summary>
+    [Test]
+    public async Task Unanalysed_scope_recorded_by_the_report_accompanies_the_verdicts()
+    {
+        var judge = new JudgeChangedLines(
+            new FakeReports(
+                Result.Succeeded(
+                    new RecordedReport(
+                        "/repo",
+                        [new RecordedMutant("T:1", Path.GetFullPath("/repo/A.cs"), new SourceSpan(10, 1, 10, 2), "M", "r", new MutantVerdict.Killed("Calc.Add"))],
+                        ["Target: test-changed 1 件"]
+                    )
+                )
+            ),
+            new FakeChangedLines(
+                Result.Succeeded(
+                    new ChangedLines(
+                        new Dictionary<string, IReadOnlyList<LineRange>>(StringComparer.Ordinal)
+                        {
+                            [Path.GetFullPath("/repo/A.cs")] = [new LineRange(10, 10)],
+                        }
+                    )
+                )
+            )
+        );
+
+        var outcome = judge.Execute("report.json", "base-ref");
+
+        await Assert.That(outcome.IsFailed(out _, out var verdicts)).IsFalse();
+        await Assert.That(verdicts!.Unanalysed.ToArray()).IsEquivalentTo(["Target: test-changed 1 件"]);
+    }
+
     /// <summary>10 行目だけが変わった差分と、指定の変異を持つ報告からの判定の組み立て</summary>
-    private static JudgeChangedLines JudgeWith(params RecordedMutant[] mutants) =>
+    private static JudgeChangedLines JudgeWith(params RecordedMutant[] mutants) => JudgeReport(new RecordedReport("/repo", mutants));
+
+    /// <summary>10 行目だけが変わった差分と、指定の変異と未分析の影響の関係を持つ報告からの判定の組み立て</summary>
+    private static JudgeChangedLines JudgeWithUnanalysed(IReadOnlyList<string>? unanalysed, params RecordedMutant[] mutants) =>
+        JudgeReport(new RecordedReport("/repo", mutants, unanalysed));
+
+    /// <summary>10 行目だけが変わった差分と、指定の変異と走行の記録を持つ報告からの判定の組み立て</summary>
+    private static JudgeChangedLines JudgeWithRun(RecordedRun? run, params RecordedMutant[] mutants) =>
+        JudgeReport(new RecordedReport("/repo", mutants, null, run));
+
+    /// <summary>10 行目だけが変わった差分と、指定の報告からの判定の組み立て</summary>
+    private static JudgeChangedLines JudgeReport(RecordedReport report) =>
         new(
-            new FakeReports(Result.Succeeded(new RecordedReport("/repo", mutants))),
+            new FakeReports(Result.Succeeded(report)),
             new FakeChangedLines(
                 Result.Succeeded(
                     new ChangedLines(

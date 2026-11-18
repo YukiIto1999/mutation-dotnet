@@ -1,7 +1,6 @@
 using System.Text.Json;
-using Mutation.Shared;
-using Mutation.Verifying.Domain;
-using Mutation.Verifying.Infrastructure.Reports;
+using Mutation.Domain;
+using Mutation.Infrastructure.Reports;
 using TUnit.Core;
 
 namespace Mutation.Tests;
@@ -99,6 +98,47 @@ public sealed class StrykerReportFacts
                     .Intersect(["coveredBy", "testsCompleted", "statusReason"])
             )
             .IsEmpty();
+    }
+
+    /// <summary>`--since` の選別が未分析にした関係が、報告の run.selection に残り、読み戻した報告から取り出せること</summary>
+    [Test]
+    public async Task The_selection_that_left_scope_unanalysed_survives_a_report_round_trip()
+    {
+        var selection = new CandidateSelection(
+            new SelectionScope.ExplicitSubset(),
+            [new ImpactReason(new ImpactRelation.ProductionChanged(), ["/repo/src/A.cs"])],
+            [new ImpactReason(new ImpactRelation.TestChanged(), ["/repo/tests/ATests.cs", "/repo/tests/BTests.cs"])]
+        );
+        var target = new TargetResult(
+            "T",
+            [],
+            new Dictionary<MutantId, MutantVerdict>(),
+            Tests,
+            TargetTimings.None,
+            [],
+            0,
+            new Dictionary<MutantId, DetectionRow>(),
+            selection
+        );
+        var result = new MutationRunResult([new TargetOutcome.Completed(target)], new PhaseTimings(0, 0, 0, 0, 0, 0));
+        var path = Path.Combine(Path.GetTempPath(), $"mutation-report-{Guid.NewGuid():N}.json");
+        try
+        {
+            StrykerReport.Write(result, ProjectRoot, path);
+            var json = await File.ReadAllTextAsync(path);
+            using var document = JsonDocument.Parse(json);
+            var recorded = StrykerReport.Parse(json, path);
+            var written = document.RootElement.GetProperty("run").GetProperty("selection")[0];
+
+            await Assert.That(written.GetProperty("scope").GetString()).IsEqualTo("changed-lines");
+            await Assert.That(written.GetProperty("unanalysed")[0].GetProperty("relation").GetString()).IsEqualTo("test-changed");
+            await Assert.That(recorded.IsFailed(out _, out var report)).IsFalse();
+            await Assert.That(report!.Unanalysed!.ToArray()).IsEquivalentTo(["T: test-changed 2 件"]);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     /// <summary>指定の判定と行を持つ対象一件の報告の書き出しと変異の連番順の読み戻し</summary>

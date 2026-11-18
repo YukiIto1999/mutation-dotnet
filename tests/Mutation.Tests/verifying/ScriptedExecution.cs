@@ -1,6 +1,5 @@
 using System.Globalization;
-using Mutation.Shared;
-using Mutation.Verifying.Domain;
+using Mutation.Domain;
 using TypeModeling.Domain;
 
 namespace Mutation.Tests;

@@ -18,9 +18,11 @@ mutation-dotnet は、次の機構で繰り返す処理を減らす。
   emit で特定できた無効な変異は rollback し、CompileError として報告する。
   コンパイルを回復できない場合は、その対象を失敗とする。
 - RelationalPatternMutator が関係 pattern の演算子を交換し、compile 可能な switch の網羅性を維持する。
-- 保存した照合条件が一致すると、過去の判定を再利用できる。
-  生成入力の指紋、テスト assembly と変異 assembly の hash が一致すると、build と対象の準備後に、生成、baseline、変異の実行を省ける。
-  入力の照合が網羅しない範囲は [docs/limitations.md](docs/limitations.md) にある。
+- 過去の判定は、入力の閉包の全体が一致するときだけ再利用する。
+  閉包は、compiler の引数、全ソース、参照する assembly、analyzer と generator、additional file、analyzer config、resource、テストの directory、engine と compiler の版、実行環境、設定である。
+  指紋と、テスト assembly と変異 assembly の hash が一致すると、build と対象の準備後に、生成、baseline、変異の実行を省ける。
+  それ以外の差があれば、mutant を再判定する。
+  閉包が網羅しない範囲は [docs/limitations.md](docs/limitations.md) にある。
 
 2026 年 8 月に、現行より前の版で実測した結果として、21 module・2,921 mutants の実プロジェクトの全実行は 4 分 21 秒で完了し、compile error の mutant は 0 件だった。
 約 18,000 mutants の別対象では、無変更の再実行が snapshot 継承により 32 秒で完了した。
@@ -67,15 +69,21 @@ dotnet src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll run \
 | `--concurrency N` | worker 数。既定は論理コア数の半分 |
 | `--configuration NAME` | build 構成。既定 Debug |
 | `--mutate GLOBS` | 変異対象の glob。project directory 相対、`!` で除外、`,` 区切り |
-| `--since REF` | git の基点から内容が変わったファイルだけを対象にする(作業木と `REF` の差分と、未追跡ファイル)。`REF` から移動か改名したファイルは追加の扱い |
-| `--changed-lines` | `--since REF` とともに指定し、報告する範囲が変更行に重なる mutant だけを生成する。差分を取得できなければ失敗し、変更ごとの実行で生成が 0 件なら成功 |
+| `--since REF` | git の基点から変わったものを候補の選択に使う(作業木と `REF` の差分と、未追跡ファイル、削除、移動)。対象へ届く変更があれば、その対象の production の全範囲を候補にし、何にも届かない変更なら何も選ばない。[変更による選別](#変更による選別)を参照 |
+| `--changed-lines` | `--since REF` とともに指定し、明示した部分集合として、変わった production の変更行に報告範囲が重なる mutant だけを生成し、変更が届くその他の関係は未分析として記録する。影響範囲の分析ではない。差分を取得できなければ失敗し、変更ごとの実行で生成が 0 件なら成功 |
 | `--break-at SCORE` | mutation score がこの値未満なら終了コード 2 |
 | `--ignore-operators NAMES` | 除外する変異演算子の名前。例 `LiteralMutator`。`,` 区切り |
 | `--ignore-methods NAMES` | この呼び出しの中を変異させない method 名。例 `ConfigureAwait`。`,` 区切り |
 | `--validate-survivors` | 生存 mutant を新規プロセスで再検証 |
 | `--exclude-static` | static の文脈にある変異と、テストの外か static 初期化の最中に実行される変異を、通常のテストが被覆していても対象外にし、Ignored として報告 |
-| `--with-baseline` | 同じ出力先の同じ種類の前回実行の保存から、不変の mutant の判定を継承。全量の実行は全量の実行から、`--since` の実行は `--since` の実行から継承。終わる前に止まった走行は確定した判定を残すので、同じ command で、判定のない mutant の続きを実行できる |
+| `--with-baseline` | 同じ出力先・実行種別の保存から、捕捉した入力と設定が一致する確定判定だけを再利用。今回の `CompileError`・`NoCoverage`・`Ignored` を優先。中断後は未判定の mutant を再実行 |
 | `--detection-matrix` | 最初の失敗で打ち切らず、mutant ごとに被覆する全テストを実行し、失敗した全テストを報告に記録する。判定は変わらない。前回の判定は継承しないので、`--with-baseline` は効かない |
+
+再利用は、installed runtime を固定し、捕捉した compilation、テスト出力、実行環境だけで判定が決まるテストに限って使う。
+実行時に読む fixture は test 出力へ含め、それ以外の file、network、時刻に依存するテストでは `--with-baseline` を付けず毎回判定する。
+環境変数と作業 directory は hash として同一性に含め、平文では保存しない。
+worker の配備物と、`TestResults` 配下を含むテストの実行時 file は同一性に含め、engine が所有する作業 directory だけを除外する。
+その除外でテスト assembly まで隠れる場合は再利用しない。
 
 ## レポート
 
@@ -90,10 +98,23 @@ console 要約に加え、`<output>/reports/` へ 2 ファイルを書き出す�
 この指定では、Microsoft.Testing.Platform はテストを一件ずつ別の呼び出しで実行する。
 
 二つの報告は、走行が全 mutant の判定を確定したかを示す `run` を持つ。
-`state` は、全 mutant の判定が確定していれば `completed`、そうでなければ `interrupted` か `unjudged` である。
-`complete` は `completed` のときだけ真で、`unjudged` は判定のない mutant の件数、`unjudgedBy` はその理由別の内訳(`notRun`、`interrupted`、`contendedTimeout`)、`interruptedTargets` は判定に至らなかった対象の名前である。
+`state` は、全対象が判定に至り全 mutant の判定が確定していれば `completed`、そうでなければ `interrupted`、`failed`、`unjudged` のいずれかである(この順に優先する)。
+`interrupted` は取り消しを受けた走行、`failed` は取り消し以外の理由(build、対象の特定、生成、基準実行の失敗)で判定に至らなかった対象がある走行、`unjudged` は判定のない mutant が残った走行である。
+`complete` は `completed` のときだけ真で、`unjudged` は判定のない mutant の件数、`unjudgedBy` はその理由別の内訳(`notRun`、`interrupted`、`contendedTimeout`、`runnerFailure`)、`interruptedTargets` は取り消しで止まった対象の名前、`failedTargets` は判定に至る前に失敗した対象の名前である。
 判定のない mutant は status が `Pending` で、`statusReason` を持つ。
 検出にも未検出にも数えないので、mutation score の母数に入らない。
+
+test runner の失敗も、判定のない理由の一つである。
+worker が test host を開けない(共有でも隔離でも)、run に失敗か `killed`、`survived`、`hitlimit` 以外の結末で応える、期限切れでも取り消しでもないのに応答しないときは、その mutant を `Pending` にして `unjudgedBy.runnerFailure` へ数え、どのテストも検出したとは記録しない。
+`Killed` か `Timeout` になるのは、テストが失敗した場合、probe 回数の上限か(上の対照の実行を経た)期限の超過、mutant を実行している間に worker process が落ちた場合だけである。
+`run` は runner の失敗の件数を出力して終了コード 3 で終わる。
+
+全対象の build が失敗した場合も、前回の報告を失敗した走行の報告で置き換える。
+前回の成功した報告を、今回の結果として残さない。
+
+`--since` の走行では、`run.selection` が対象ごとの項目を持つ。
+`scope`(`full-production`、`changed-lines`、`no-impact`)、範囲を決めた `reasons`(関係と file)、明示した `--changed-lines` の部分集合が外した `unanalysed` の関係である。
+[変更による選別](#変更による選別)を参照。
 
 ## 走行の中断
 
@@ -124,16 +145,42 @@ build と mutant の生成は、取り消しの要求を受けても終えるま
 probe 回数の上限は時間によらないので、`Timeout` のままである。
 Stryker.NET、StrykerJS、PIT は固定の期限のままで、忙しい機には人が大きくする定数で対処する。
 
+## 変更による選別
+
+`--since REF` では、`REF` から変わった全ファイルを、対象と対にしたテスト project の build graph に照らして分類する。
+分類は、production のソース、テスト、参照する project、build の入力、削除、関係不明の file である。
+compiler 入力に含まれない file も、外部 import や実行時の fixture として使われうるため、影響なしとは断定しない。
+関係不明の変更と削除は、`bin` と `obj` の中でも対象全体へ広げる。
+
+| 変わったもの | 選択 |
+|---|---|
+| 変更がない | `no-impact`：候補なし |
+| production のソース、テスト、参照する project、build 入力、削除、関係不明の file | `full-production`：`--mutate` が許す対象の production の全ファイル |
+| 同じ変更に `--changed-lines` | `changed-lines`：変わった production の変更行に重なる mutant だけの明示した部分集合 |
+
+全範囲を選んだ理由と file は、`run.selection[].reasons` に残す。
+変更行の部分集合が外すテスト、build 入力、参照先、削除、未変更の呼び出し元などの関係は、`run.selection[].unanalysed` と console 要約に残す。
+`changed-lines` も判定の後に未分析の関係を出力する。
+選別は対象ごとに報告する。
+関係不明の file は、文書に見えるものも含め、指定した全対象を広げる場合がある。
+project 間の参照は、StructuredLogger が MSBuild の評価から作る `ProjectReference` graph を推移的に辿る。
+assembly 名や出力 directory からは推測しない。
+選別は、全体の再利用の指紋に含まれる。
+分類が見ない範囲は [docs/limitations.md](docs/limitations.md) にある。
+
 ## 変更行の判定
 
-`run --since REF` は、ファイル単位で変異対象を絞る。
-`--changed-lines` を加えると、同じ `REF` から変わった行に報告範囲が重なる mutant だけを生成する。
+`run --since REF --changed-lines` は、同じ `REF` から変わった行に報告範囲が重なる mutant だけを生成する。
 `changed-lines` はその報告を判定し、変わった行に未検出の mutant があれば非ゼロで終了する。
 変わった行は、作業木と `REF` の差分の新しい側の行、未追跡ファイルの全行、`REF` から移動か改名したファイルの全行である。
 移動と改名は、削除と追加として扱う。
 status が `Survived` か `NoCoverage` の mutant を未検出と数え、変わった行の外の mutant は結果に入れない。
 変わった行の mutant が `Pending` なら未検出とは数えないが、合格とも言えないので、未検出がなければ `changed-lines` は 0 でなく 1 で終わる。
-変更ごとの実行で生成が 0 件なら成功し、全量の実行で生成が 0 件なら全量の検証入口が失敗する。
+生成が 0 件でも、報告が `failed` または `interrupted` なら、未検出がなくても終了コード 1 である。
+未知の state は読取失敗にし、`run` を持たない旧形式の報告は従来どおり判定する。
+完了した実行で生成が 0 件なら成功するが、その判定は変わった行だけの結果である。
+報告が未分析の関係(変えたテスト、build の入力、削除、未変更の呼び出し元)を記録していれば、`changed-lines` は正常な判定でも失敗の診断でもそれを出力する。
+全量の実行で生成が 0 件なら全量の検証入口が失敗する。
 
 push 前の検査の例を示す。
 基点は push する範囲の始点で、ここでは upstream との分岐点である。
@@ -151,7 +198,7 @@ dotnet src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll changed-lines \
 | 終了コード | 意味 |
 |---|---|
 | 0 | 変わった行の mutant に未検出なし。変わった行に mutant が一件もない場合を含む |
-| 1 | 報告を読めない、`REF` との差分を解決できない、または変わった行の mutant に `Pending` があり未検出がない |
+| 1 | 報告か差分の読取失敗、または未検出がなくても変更行に `Pending` がある・走行が失敗した・中断した |
 | 2 | 変わった行の mutant に未検出が一件以上。各件を `path:line:column status mutator: replacement` で出力 |
 
 ## 開発
@@ -160,7 +207,7 @@ dotnet src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll changed-lines \
 
 - `devenv shell verify`(2 分以内、commit の前)は、analyzer の警告をエラー扱いにした build と、ユニットテストを実行する。
   build は関数の認知的複雑度(SonarAnalyzer の S3776、上限 15)も判定する。
-- `devenv shell verify-push`(15 分以内、push の前)は、`verify` と、フィクスチャへの E2E 検証(判定カテゴリ、3 つのテスト基盤、変更行の判定、検出行列、`SIGTERM` と `SIGKILL` で止めた走行)を実行する。
+- `devenv shell verify-push`(15 分以内、push の前)は、`verify` と、フィクスチャへの E2E 検証(判定カテゴリ、3 つのテスト基盤、変更行の判定、検出行列、`SIGTERM` と `SIGKILL` で止めた走行、保存の再利用とその無効化、変更による選別)を実行する。
   自身のエンジンへの mutation testing は実行しない。
 - `devenv shell verify-full`(gate にしない、release の前)は、`regression-full` の後に `mutation-select` を、それぞれ [tiergate.json](tiergate.json) に宣言した上限で止まる別の走行で実行し、終了 status は `regression-full` のものにする。
 - `devenv shell regression-full`(15 分以内)は、`verify` と E2E 検証を変更で絞らず全て実行し、終了 status と失敗した段を `.mutation-output/regression-full/` へ残し、前回に無かった失敗した段を、追跡外の作業台帳 `work/backlog.md` へ追記する。

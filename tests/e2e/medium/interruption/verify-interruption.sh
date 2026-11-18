@@ -36,16 +36,9 @@ check() {
 }
 
 run_cli() {
-  dotnet "$cli" run --project "$projects" --test-project "$tests" --concurrency 1 "$@"
+  exec env _="$(command -v dotnet)" dotnet "$cli" run --project "$projects" --test-project "$tests" --concurrency 1 "$@"
 }
 
-# 走行を background で始める。signal が dotnet の process へ直接届くよう、subshell を exec で dotnet に置き換える
-start_cli() {
-  local log="$1"
-  shift
-  ( exec dotnet "$cli" run --project "$projects" --test-project "$tests" --concurrency 1 "$@" > "$log" 2>&1 ) &
-  background=$!
-}
 
 # 時間のかかる対象の変異ごとの判定。位置と置換と status を並べ替えた一行ずつ。Pending は含めない
 settled() {
@@ -84,7 +77,7 @@ leftover_workers() {
 }
 
 # 参照: 途中で止めない走行
-run_cli --output "$work/full" > "$work/full.log" 2>&1 || { echo "FAIL 参照の走行"; tail -20 "$work/full.log"; exit 1; }
+(run_cli --output "$work/full") > "$work/full.log" 2>&1 || { echo "FAIL 参照の走行"; tail -20 "$work/full.log"; exit 1; }
 full_report="$work/full/reports/mutation-report.json"
 settled "$full_report" > "$work/full.settled"
 check "参照の走行の状態" completed "$(jq -r '.run.state' "$full_report")"
@@ -94,7 +87,8 @@ echo "     時間のかかる対象の変異 $total 件"
 [ "$total" -ge 8 ] || { echo "FAIL 時間のかかる対象の変異が少なすぎる"; fail=1; }
 
 # SIGTERM: 三件の判定を確定した後に送る。二つ目の対象には取りかからない
-start_cli "$work/term.log" --output "$work/term"
+(run_cli --output "$work/term") > "$work/term.log" 2>&1 &
+background=$!
 wait_for_three_verdicts "$work/term/work/Pauses.Target/snapshot.verdicts.jsonl" "$background" || exit 1
 kill -TERM "$background"
 status=0
@@ -121,7 +115,7 @@ check "追記の記録は snapshot に畳まれて消える" false "$([ -f "$wor
 check "SIGTERM の後に残る worker" 0 "$(leftover_workers)"
 
 # 続き: 同じ command に --with-baseline を足すと、確定済みの判定を継承して残りだけを実行する
-run_cli --output "$work/term" --with-baseline > "$work/term-resume.log" 2>&1 || { echo "FAIL SIGTERM の続きの走行"; tail -20 "$work/term-resume.log"; exit 1; }
+(run_cli --output "$work/term" --with-baseline) > "$work/term-resume.log" 2>&1 || { echo "FAIL SIGTERM の続きの走行"; tail -20 "$work/term-resume.log"; exit 1; }
 resume_report="$work/term/reports/mutation-report.json"
 check "続きの走行の状態" completed "$(jq -r '.run.state' "$resume_report")"
 check "続きの走行の判定は、止めない走行の判定と同じ" "" "$(diff <(settled "$resume_report") "$work/full.settled" || true)"
@@ -129,7 +123,8 @@ check "続きの走行が継承した判定の件数" "$kept" "$(inherited_total
 check "続きの走行が実行した変異は、残りだけ" "$(( $(executed_total "$work/full.log") - kept ))" "$(executed_total "$work/term-resume.log")"
 
 # SIGKILL: 報告は書けないが、追記の記録が判定を残し、続きの走行が使う
-start_cli "$work/kill.log" --output "$work/kill"
+(run_cli --output "$work/kill") > "$work/kill.log" 2>&1 &
+background=$!
 wait_for_three_verdicts "$work/kill/work/Pauses.Target/snapshot.verdicts.jsonl" "$background" || exit 1
 kill -KILL "$background"
 wait "$background" 2>/dev/null || true
@@ -138,7 +133,7 @@ check "SIGKILL の後に報告は無い" false "$([ -f "$work/kill/reports/mutat
 kept_by_journal=$(( $(wc -l < "$work/kill/work/Pauses.Target/snapshot.verdicts.jsonl") - 1 ))
 [ "$kept_by_journal" -ge 3 ] && echo "ok   追記の記録が判定を残す = $kept_by_journal" || { echo "FAIL 追記の記録の判定が $kept_by_journal 件しか無い"; fail=1; }
 check "SIGKILL の後に残る worker" 0 "$(leftover_workers)"
-run_cli --output "$work/kill" --with-baseline > "$work/kill-resume.log" 2>&1 || { echo "FAIL SIGKILL の続きの走行"; tail -20 "$work/kill-resume.log"; exit 1; }
+(run_cli --output "$work/kill" --with-baseline) > "$work/kill-resume.log" 2>&1 || { echo "FAIL SIGKILL の続きの走行"; tail -20 "$work/kill-resume.log"; exit 1; }
 kill_report="$work/kill/reports/mutation-report.json"
 check "SIGKILL の続きの走行の状態" completed "$(jq -r '.run.state' "$kill_report")"
 check "SIGKILL の続きの走行の判定は、止めない走行の判定と同じ" "" "$(diff <(settled "$kill_report") "$work/full.settled" || true)"

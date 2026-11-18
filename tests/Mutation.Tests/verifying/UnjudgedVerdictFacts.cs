@@ -1,5 +1,4 @@
-using Mutation.Shared;
-using Mutation.Verifying.Domain;
+using Mutation.Domain;
 using TUnit.Core;
 
 namespace Mutation.Tests;
@@ -86,6 +85,39 @@ public sealed class UnjudgedVerdictFacts
         );
 
         await Assert.That(result.State).IsEqualTo("interrupted");
+    }
+
+    /// <summary>取り消しではない失敗で判定に至らなかった対象があれば、他の対象が全件確定していても、走行を完了と言わず failed にすること</summary>
+    [Test]
+    public async Task A_target_that_failed_before_judgement_makes_the_run_failed_not_completed()
+    {
+        var result = new MutationRunResult(
+            [
+                new TargetOutcome.Completed(Target(new MutantVerdict.Killed("t"))),
+                new TargetOutcome.Failed("B", new PipelineFailure.BuildFailed("error CS0001"), 0),
+            ],
+            Timings
+        );
+
+        await Assert.That(result.State).IsEqualTo("failed");
+        await Assert.That(result.IsComplete).IsFalse();
+        await Assert.That(result.FailedTargets.Select(failure => failure.Name).ToArray()).IsEquivalentTo(["B"]);
+    }
+
+    /// <summary>取り消しと失敗の対象が並ぶ走行は、取り消しを優先して interrupted にし、失敗の対象を失わないこと</summary>
+    [Test]
+    public async Task Interruption_takes_precedence_over_a_failed_target_in_the_state()
+    {
+        var result = new MutationRunResult(
+            [
+                new TargetOutcome.Failed("A", new PipelineFailure.BuildFailed("error CS0001"), 0),
+                new TargetOutcome.Failed("B", new PipelineFailure.Interrupted(), 0),
+            ],
+            Timings
+        );
+
+        await Assert.That(result.State).IsEqualTo("interrupted");
+        await Assert.That(result.FailedTargets.Select(failure => failure.Name).ToArray()).IsEquivalentTo(["A"]);
     }
 
     /// <summary>連番順の判定を持つ対象一件の確定結果</summary>
