@@ -139,9 +139,9 @@ dotnet src/Mutation.Cli/bin/Debug/net10.0/Mutation.Cli.dll changed-lines \
 
 ## Development
 
-Verification runs through devenv entries, split by time budget:
+Verification runs through devenv entries. Each timed entry declares a run limit in [tiergate.json](tiergate.json), and `verify` also declares a feedback target; a run that exceeds the target is reported and not cancelled, and a run that reaches the limit is cancelled:
 
-- `devenv shell verify` (within the 120-second budget declared in [tiergate.json](tiergate.json), before every commit) builds the solution with every analyzer warning as an error, including cognitive complexity (SonarAnalyzer S3776, threshold 15), and runs the unit tests.
+- `devenv shell verify` (feedback target 120 seconds, run limit 690 seconds, before every commit) builds the solution with every analyzer warning as an error, including cognitive complexity (SonarAnalyzer S3776, threshold 15), and runs the unit tests.
 - `devenv shell verify-push` (within 15 minutes, before every push) runs `verify` and the end-to-end checks on the fixtures (verdict categories, the three test frameworks, the changed-line gate, the detection matrix, a run stopped by `SIGTERM` and `SIGKILL`, snapshot reuse and its invalidation, and selection by change). It runs no mutation testing on mutation-dotnet's own engine.
 - `devenv shell verify-full` (not a gate, before every release) runs `regression-full` and then `mutation-select` as two separate runs, each stopped at its own limit declared in [tiergate.json](tiergate.json), and exits with the status of `regression-full`.
 - `devenv shell regression-full` (within 15 minutes) runs `verify` and the end-to-end checks without narrowing them to a change, keeps its exit status and failed stages under `.mutation-output/regression-full/`, and appends failed stages that the previous run did not report to `work/backlog.md`, an ignored working ledger. A stage stopped at the limit is recorded as incomplete, with exit status 124, not as a failure.
