@@ -39,16 +39,16 @@ devenv が .NET SDK と検証入口を管理する。
 
 ## 検証
 
-検証は時間の予算で三段に分け、リポジトリの root で実行する。
-時間制限のある `verify` と `verify-push` の予算は、[`tiergate.json`](tiergate.json) に宣言する。
+検証は三段に分け、リポジトリの root で実行する。
+`verify` と `verify-push` は、時間の目標(`feedbackTargetSeconds`)と一走行の上限(`seconds`)を [`tiergate.json`](tiergate.json) に分けて宣言する。目標を宣言していない入口は上限だけを持つ。
 
-| 入口 | 予算 | 実行する時点 | 中身 |
+| 入口 | 目標と上限 | 実行する時点 | 中身 |
 | --- | --- | --- | --- |
-| `devenv shell verify` | 2 分 | commit の前、agent が作業を止める前 | 警告 0 の build(S3776 の認知的複雑度 15 を含む)とユニットテスト |
-| `devenv shell verify-push` | 15 分 | push の前(作業機の pre-push hook が起動) | `verify` と E2E 検証。mutation は実行せず、mutation の結果で合否を決めない |
-| `devenv shell verify-full` | 46 分 | release の準備の前 | `regression-full` の後に `mutation-select` を別の走行で実行する。gate にせず、終了 status は `regression-full` のもの |
-| `devenv shell regression-full` | 15 分 | `verify-full` の一段として、または単独で | 全量回帰。`verify` と E2E 検証を影響範囲で絞らず全て実行する。終了 status と失敗した段を `.mutation-output/regression-full/` へ残し、失敗した段を `work/backlog.md` へ追記する |
-| `devenv shell mutation-select` | 30 分 | `verify-full` の一段として、または単独で | 選択型の mutation の分析。比較元から変わった `src/Mutation` の行に重なる mutant を engine の `--since --changed-lines` で選び、`--with-baseline` で前回の判定を継承し、`changed-lines` で判定する。比較元、候補、生成対象、未分析の範囲と生の終了 status を `.mutation-output/select/` へ、分析ごとの記録を `.mutation-output/select/runs/` へ残し、未検出 mutant と失敗を `work/backlog.md` へ追記する。全量回帰の結果は変えない |
+| `devenv shell verify` | 目標 2 分、上限 11 分 30 秒 | commit の前、agent が作業を止める前 | 警告 0 の build(S3776 の認知的複雑度 15 を含む)とユニットテスト |
+| `devenv shell verify-push` | 上限 15 分 | push の前(作業機の pre-push hook が起動) | `verify` と E2E 検証。mutation は実行せず、mutation の結果で合否を決めない |
+| `devenv shell verify-full` | 上限 46 分 | release の準備の前 | `regression-full` の後に `mutation-select` を別の走行で実行する。gate にせず、終了 status は `regression-full` のもの |
+| `devenv shell regression-full` | 上限 15 分 | `verify-full` の一段として、または単独で | 全量回帰。`verify` と E2E 検証を影響範囲で絞らず全て実行する。終了 status と失敗した段を `.mutation-output/regression-full/` へ残し、失敗した段を `work/backlog.md` へ追記する |
+| `devenv shell mutation-select` | 上限 30 分 | `verify-full` の一段として、または単独で | 選択型の mutation の分析。比較元から変わった `src/Mutation` の行に重なる mutant を engine の `--since --changed-lines` で選び、`--with-baseline` で前回の判定を継承し、`changed-lines` で判定する。比較元、候補、生成対象、未分析の範囲と生の終了 status を `.mutation-output/select/` へ、分析ごとの記録を `.mutation-output/select/runs/` へ残し、未検出 mutant と失敗を `work/backlog.md` へ追記する。全量回帰の結果は変えない |
 | `devenv shell mutation-full` | なし | 全量の分析が必要な問いがある場合に明示して | 全量の mutation の分析。生の終了 status を `.mutation-output/full/exit-status` へ残し、前回から増えた失敗と未検出 mutant を `work/backlog.md` へ追記する。`verify-full` からは呼ばない |
 
 mutation は検出力の分析であり、commit、push、release の合否を決めない。
@@ -72,7 +72,8 @@ engine は依存先と逆依存から対象を選べない([#1](https://github.c
 ただし導入時点の HEAD は、走行が完了しなくても次の走行が同じ commit から測るよう、走行の前に記録する。
 選択の結果は全量の分析ではなく、`selection.json` の `scope` は `selected` である。
 
-予算を超えた段は失敗として扱い、より安い検証へ置き換えるか後の段へ移す。
+目標を超えた走行は取り消さず、超過が続く段は、検証をより安い検証へ置き換えるか後の段へ移す。
+上限に達した走行は取り消され、合格として扱わない。取り消された走行が進行中だった場合は、検査の失敗として直さず、その経過時間を下限に上限を決め直す。
 S3776 の既存違反は、`docs/conformance-baseline.json` の基線台帳に記録した member だけを、台帳の id を Justification に書いた `SuppressMessage` で抑止する。
 台帳にない member へ抑止を加えない。
 
